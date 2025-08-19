@@ -1,0 +1,68 @@
+name: Get from Pi
+description: Fetches database instance data and outputs it as a JSON string.
+outputs:
+  - name: db_data_json
+    type: String
+implementation:
+  container:
+    image: python:3.9
+    command:
+      - sh
+      - -c
+      - |
+        python3 -m pip install --quiet requests || \
+        python3 -m pip install --quiet requests --user
+        exec "$0" "$@"
+      - python3
+      - -u
+      - -c
+      - |
+        import argparse, json, requests, os
+
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--db_data_json', type=str, required=True)
+        args = parser.parse_args()
+
+        def get_access_token():
+            login_url = "https://ig.aidtaas.com/mobius-iam-service/v1.0/login"
+            headers = {
+                "content-type": "application/json",
+                "mask": "false"
+            }
+            payload = {
+                "userName": "aidtaas@gaiansolutions.com",
+                "password": "Gaian@123",
+                "productId": "c2255be4-ddf6-449e-a1e0-b4f7f9a2b636",
+                "requestType": "TENANT"
+            }
+            response = requests.post(login_url, headers=headers, json=payload)
+            response.raise_for_status()
+            return response.json()["accessToken"]
+
+        def get_instances(access_token):
+            instances_url = "https://ig.aidtaas.com/pi-entity-instances-service/v3.0/schemas/68a44cd2eed84d47877a3f5e/instances/list"
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "dbType": "TIDB",
+                "ownedOnly": True,
+                "filter": {
+                    "id": "1"
+                }
+            }
+            response = requests.post(instances_url, headers=headers, json=payload)
+            response.raise_for_status()
+            return response.json()
+
+        token = get_access_token()
+        db_data = get_instances(token)
+
+        os.makedirs(os.path.dirname(args.db_data_json), exist_ok=True)
+        with open(args.db_data_json, 'w') as f:
+            f.write(json.dumps(db_data))
+        print(f"Database data fetched and written to {args.db_data_json}")
+    args:
+      - --db_data_json
+      - {outputPath: db_data_json}

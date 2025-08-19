@@ -1,0 +1,220 @@
+name: Piercing
+description: Triggers the RLAF pipeline once with initial metrics and returns the output.
+inputs:
+  - {name: trained_model, type: Model}
+  - {name: init_metrics, type: Dataset}
+
+outputs:
+  - {name: rlaf_output, type: Dataset}
+implementation:
+  container:
+    image: python:3.9
+    command:
+      - sh
+      - -c
+      - |
+        python3 -m pip install --quiet requests || \
+        python3 -m pip install --quiet requests --user
+        exec "$0" "$@"
+      - python3
+      - -u
+      - -c
+      - |
+        import os
+        import json
+        import argparse
+        import requests
+        import time
+
+        def get_access_token():
+            url = "https://ig.aidtaas.com/mobius-iam-service/v1.0/login"
+            payload = json.dumps({
+                "userName": "aidtaas@gaiansolutions.com",
+                "password": "Gaian@123",
+                "productId": "c2255be4-ddf6-449e-a1e0-b4f7f9a2b636",
+                "requestType": "TENANT"
+            })
+            headers = {'Content-Type': 'application/json'}
+            response = requests.post(url, headers=headers, data=payload)
+            response.raise_for_status()
+            access_token = response.json()['accessToken']
+            return access_token
+
+        def trigger_pipeline(config):
+            url = f"https://ig.aidtaas.com/bob-service-test/v1.0/pipeline/trigger/ml?pipelineId={config['pipeline_id']}"
+            payload = json.dumps({
+                "pipelineType": "ML",
+                "containerResources": {},
+                "experimentId": config['experiment_id'],
+                "enableCaching": True,
+                "parameters": {},
+                "version": 1
+            })
+            headers = {
+                'accept': 'application/json',
+                'Authorization': f"Bearer {config['access_token']}",
+                'Content-Type': 'application/json'
+            }
+            response = requests.post(url, headers=headers, data=payload)
+            response.raise_for_status()
+            print(response.json())
+            return response.json()['runId']
+
+        def get_pipeline_status(config):
+            access_token = config['access_token']
+            pipeline_id = config['pipeline_id']
+            run_id = config['run_id']
+            url = f"https://ig.aidtaas.com/bob-service-test/v1.0/pipeline/{pipeline_id}/status/ml/{run_id}"
+            headers = {
+                'accept': 'application/json',
+                'Authorization': f'Bearer {access_token}'
+            }
+            response = requests.get(url, headers=headers)
+            response.raise_for_status()
+            pipeline_status = response.json()
+            latest_state = pipeline_status['run_details']['state_history'][-1]
+            return latest_state['state']
+
+        def get_instances(access_token):
+            url = "https://ig.aidtaas.com/pi-entity-instances-service/v3.0/schemas/685a9dcd08232436a767c98a/instances/list"
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json"
+            }
+            payload = {"dbType": "TIDB", "ownedOnly": True, "filter": {"id": "1"}}
+            response = requests.post(url, headers=headers, json=payload)
+            response.raise_for_status()
+            return response.json()
+
+        def update_instance(access_token, instance_id, field_to_update, new_value):
+            url = "https://ig.aidtaas.com/pi-entity-instances-service/v2.0/schemas/685a9dcd08232436a767c98a/instances"
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "dbType": "TIDB",
+                "conditionalFilter": {"conditions": [{"field": "id", "operator": "EQUAL", "value": instance_id}]},
+                "partialUpdateRequests": [{"patch": [{"operation": "REPLACE", "path": field_to_update, "value": new_value}]}]
+            }
+            response = requests.patch(url, headers=headers, json=payload)
+            response.raise_for_status()
+            return response.json()
+
+        def append_to_pierce2rlaf(access_token, new_entry):
+            current_data = get_instances(access_token)
+            instance = current_data["content"][0]
+            if "pierce2rlaf" not in instance:
+                instance["pierce2rlaf"] = []
+            instance["pierce2rlaf"].append(new_entry)
+            update_instance(access_token, instance["id"], "pierce2rlaf", instance["pierce2rlaf"])
+            print("Appended to pierce2rlaf successfully.")
+
+        def get_pierce_params():
+            token = get_access_token()
+            rlaf_to_pierce_data = get_instances(token)
+            print(json.dumps(rlaf_to_pierce_data["content"], indent=4))
+            pierce_data = rlaf_to_pierce_data['content'][-1]["rlaf2pierce"][-1]
+            print(pierce_data)
+            pierce_parameters = pierce_data['actions'][-1]
+            pierce_params = {
+                "epochs": pierce_parameters.get('epochs', 5),
+                "optimiser_params": {
+                    "learning_rate": pierce_parameters.get('lr', 0.03),
+                    "beta_1": pierce_parameters.get('b1', 0.9),
+                    "beta_2": pierce_parameters.get('b2', 0.99)
+                },
+                "pierce_model": pierce_data.get("pierce_or_not", "false")
+            }
+            print(f"The Piercing parameters from RLAF are {pierce_params}")
+            return pierce_params
+
+        def trigger_RLAF(config):
+            run_id = trigger_pipeline(config)
+            config["run_id"] = run_id
+            while True:
+                pipeline_status = get_pipeline_status(config)
+                print(f"Current pipeline status: {pipeline_status}")
+                if pipeline_status == 'SUCCEEDED':
+                    print("RLAF Pipeline execution completed")
+                    break
+                elif pipeline_status in ['FAILED', 'ERROR']:
+                    print(f"Pipeline execution failed with status: {pipeline_status}")
+                    raise RuntimeError(f"Pipeline failed with status {pipeline_status}")
+                else:
+                    time.sleep(60)
+
+        def run_rlaf_once(init_metrics):
+            accuracy = init_metrics.get("accuracy", 0.0)
+            prev_accuracy = init_metrics.get("prev_accuracy", 0.0)
+            b1 = init_metrics.get("b1", 0)
+            b2 = init_metrics.get("b2", 0)
+            epochs = init_metrics.get("epochs", 0)
+            lr = init_metrics.get("lr", 0)
+            
+            new_pierce2rlaf_entry = {
+                "actions": [{"accuracy": accuracy, "prev_accuracy": prev_accuracy, "b1": b1, "b2": b2, "epochs": epochs, "lr": lr}],
+                "timestamp": str(int(time.time())),
+                "trained_accuracy": 0.1
+            }
+
+            access_token = get_access_token()
+            append_to_pierce2rlaf(access_token, new_pierce2rlaf_entry)
+            
+            config = {
+                "pipeline_id": "0197ab1d-cb4c-7d06-9e68-3846086e9f9b",
+                "experiment_id": "37e5cbe2-9fd7-4bc1-ad49-86d8a4a2c2e3",
+                "access_token": access_token
+            }
+            
+            trigger_RLAF(config)
+            pierce_params = get_pierce_params()
+            return pierce_params
+
+        def dummy_pierce_function(params):
+            print("Dummy piercing function called with parameters:")
+            print(json.dumps(params, indent=4))
+            # This function should return new metrics to be used in the next RLAF run
+            # For now, returning the same params as a placeholder
+            return {
+                "accuracy": 0.86,
+                "prev_accuracy": 0.85,
+                "b1": params["optimiser_params"]["beta_1"],
+                "b2": params["optimiser_params"]["beta_2"],
+                "epochs": params["epochs"],
+                "lr": params["optimiser_params"]["learning_rate"]
+            }
+
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--trained_model', type=str, required=True)
+        parser.add_argument('--init_metrics', type=str, required=True)
+        parser.add_argument('--rlaf_output', type=str, required=True)
+        args = parser.parse_args()
+
+        print(f"Trained model path: {args.trained_model}")
+        print(f"Initial metrics path: {args.init_metrics}")
+
+        with open(args.init_metrics, 'r') as f:
+            current_metrics = json.load(f)
+
+        while True:
+            rlaf_params = run_rlaf_once(current_metrics)
+            print(f"RLAF output params: {rlaf_params}")
+
+            if rlaf_params.get("pierce_model"):
+                print("pierce_or_not is true, calling dummy function and looping.")
+                current_metrics = dummy_pierce_function(rlaf_params)
+            else:
+                print("pierce_or_not is false, exiting loop.")
+                break
+        
+        os.makedirs(os.path.dirname(args.rlaf_output), exist_ok=True)
+        with open(args.rlaf_output, 'w') as f:
+            json.dump(rlaf_params, f, indent=4)
+    args:
+      - --trained_model
+      - {inputPath: trained_model}
+      - --init_metrics
+      - {inputPath: init_metrics}
+      - --rlaf_output
+      - {outputPath: rlaf_output}

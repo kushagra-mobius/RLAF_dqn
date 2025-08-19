@@ -1,0 +1,237 @@
+name: RLAF Combined Policy and Action Selection
+description: Returns top action based on probability and a boolean to pierce or not, considering initial run or policy update.
+inputs:
+  - name: db_data
+    type: String
+outputs:
+  - name: pierce_or_not
+    type: Boolean
+  - name: top_action
+    type: String
+  - name: updates_list
+    type: String
+implementation:
+  container:
+    image: python:3.9
+    command:
+      - sh
+      - -c
+      - |
+        python3 -m pip install --quiet torch numpy requests || \
+        python3 -m pip install --quiet torch numpy requests --user
+        exec "$0" "$@"
+      - python3
+      - -u
+      - -c
+      - |
+        import argparse, torch, json, os, requests
+        import numpy as np
+
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--pierce_or_not', type=str, required=True)
+        parser.add_argument('--top_action', type=str, required=True)
+        parser.add_argument('--db_data', type=str, required=True)
+        parser.add_argument('--updates_list', type=str, required=True)
+        args = parser.parse_args()
+
+        import time # Added for timestamp generation
+
+        # Ensure output directories exist
+        os.makedirs(os.path.dirname(args.pierce_or_not), exist_ok=True)
+        os.makedirs(os.path.dirname(args.top_action), exist_ok=True)
+        os.makedirs(os.path.dirname(args.updates_list), exist_ok=True)
+        print(args.db_data)
+        # Functions to fetch data from the database (from sus2.py)
+        def append_to_rlaf2pierce(instance, new_entry):
+            instance["rlaf2pierce"].append(new_entry)
+            return {
+                "instance_id": instance["id"],
+                "field_to_update": "rlaf2pierce",
+                "new_value": instance["rlaf2pierce"]
+            }
+
+        def update_rlaf_config_scores(instance, scores_list):
+            instance_id = instance["id"]
+
+            rlaf_config = instance.get("rlaf_config", {})
+            actions = rlaf_config.get("actions", [])
+
+            if len(actions) != len(scores_list):
+                print(f"Warning: Length of scores_list ({len(scores_list)}) does not match number of actions ({len(actions)}). Scores will be applied sequentially.")
+
+            for i, score in enumerate(scores_list):
+                if i < len(actions):
+                    actions[i]["score"] = score
+
+            rlaf_config["actions"] = actions
+            instance["rlaf_config"] = rlaf_config
+
+            return {
+                "instance_id": instance_id,
+                "field_to_update": "rlaf_config",
+                "new_value": instance["rlaf_config"]
+            }
+
+        # Inputs
+        with open(args.db_data, 'r') as f:
+            db_data_content = f.read()
+        
+        if not db_data_content:
+            raise ValueError(f"Input file {args.db_data} is empty or contains no data.")
+            
+        db_data = json.loads(db_data_content)
+
+        instance_data = None
+        if db_data and "content" in db_data and len(db_data["content"]) > 0:
+            instance_data = db_data["content"][0]
+        
+        piercing_results = {} # Default to empty dict
+        if instance_data and "pierce2rlaf" in instance_data and len(instance_data["pierce2rlaf"]) > 0:
+            piercing_results = instance_data["pierce2rlaf"][-1]
+        
+        # Initialize accuracy and prev_accuracy safely
+        accuracy = None
+        prev_accuracy = None
+        if piercing_results and piercing_results.get('actions'):
+            if len(piercing_results['actions']) > 0:
+                accuracy = piercing_results['actions'][0].get('accuracy')
+                prev_accuracy = piercing_results['actions'][0].get('prev_accuracy')
+        
+        baseline_accuracy = instance_data.get("baseline_score", 0.85) # Default to 0.85 if not found
+        
+        # Extract rlaf_config actions and initial logits from the database data
+        rlaf_config_actions = instance_data.get("rlaf_config", {}).get("actions", []) if instance_data else []
+        
+        action_space_list = []
+        initial_logits_list = []
+        for action_item in rlaf_config_actions:
+            action_space_list.append(action_item)
+            initial_logits_list.append(action_item.get("score", 0.0)) # Default score to 0.0 if missing
+
+        current_logits = torch.tensor(initial_logits_list, dtype=torch.float32, requires_grad=True)
+        
+        pierce_decision = True # Default to true for initial run or if baseline not met
+
+        # Get pierce2rlaf data and find the latest entry
+        pierce2rlaf_data = instance_data.get("pierce2rlaf", []) if instance_data else []
+        
+        print(f"pierce2rlaf_data: {pierce2rlaf_data}")
+        latest_pierce2rlaf_entry = None
+        print(f"latest_pierce2rlaf_entry before if: {latest_pierce2rlaf_entry}")
+        if pierce2rlaf_data:
+            # Sort by timestamp (assuming timestamps are strings that can be sorted lexicographically)
+            sorted_pierce2rlaf = sorted(pierce2rlaf_data, key=lambda x: x.get("timestamp", "0"), reverse=True)
+            latest_pierce2rlaf_entry = sorted_pierce2rlaf[0]
+
+        print(f"latest_pierce2rlaf_entry after if: {latest_pierce2rlaf_entry}")
+        updates_to_apply = []
+
+        if latest_pierce2rlaf_entry and latest_pierce2rlaf_entry.get("actions"):
+            # Policy update logic (REINFORCE)
+            baseline = latest_pierce2rlaf_entry.get("trained_accuracy", 0.0) # Use trained_accuracy as baseline
+
+            # Create a mapping from action key (tuple of identifying parameters) to index
+            action_to_idx = {}
+            for idx, action_data in enumerate(action_space_list):
+                # Assuming b1, b2, epochs, lr uniquely identify an action
+                action_key = (action_data.get("b1"), action_data.get("b2"), action_data.get("epochs"), action_data.get("lr"))
+                action_to_idx[action_key] = idx
+            
+            # Check if any of the pierced actions' accuracies reached the baseline
+            for action in latest_pierce2rlaf_entry["actions"]:
+                if action.get("accuracy", 0.0) >= baseline:
+                    pierce_decision = False
+                    break
+
+            optimizer = torch.optim.Adam([current_logits], lr=0.05)
+            
+            # Collect losses for all actions in the current update
+            losses = []
+            for pierced_action_data in latest_pierce2rlaf_entry["actions"]:
+                # Reconstruct the key for the pierced action
+                pierced_action_key = (
+                    pierced_action_data.get("b1"),
+                    pierced_action_data.get("b2"),
+                    pierced_action_data.get("epochs"),
+                    pierced_action_data.get("lr")
+                )
+                
+                action_idx = action_to_idx.get(pierced_action_key)
+                
+                if action_idx is None:
+                    print(f"Warning: Pierced action '{pierced_action_key}' not found in action space. Skipping.")
+                    continue
+                
+                reward_val = pierced_action_data["accuracy"]
+                
+                # Calculate log_prob for the specific action from current_logits
+                probs = torch.softmax(current_logits, dim=0)
+                dist = torch.distributions.Categorical(probs)
+                log_prob_tensor = dist.log_prob(torch.tensor(action_idx))
+                
+                loss = -log_prob_tensor * (reward_val - baseline)
+                losses.append(loss)
+            
+            if losses: # Only perform update if there are losses to backpropagate
+                total_loss = torch.stack(losses).sum()
+                
+                optimizer.zero_grad()
+                total_loss.backward()
+                optimizer.step()
+ 
+            # After policy update, update scores in the database
+            updated_logits_list = current_logits.tolist() # Convert tensor to list for JSON serialization
+            updates_to_apply.append(update_rlaf_config_scores(db_data["content"][0], updated_logits_list))
+        else:
+            print("No actions in latest pierce2rlaf entry or no pierce2rlaf data. Skipping policy update.")
+
+        # Get top action based on current (or updated) logits
+        probs = torch.softmax(current_logits, dim=0)
+        
+        # Get top action by probability
+        top_probs, top_indices = torch.topk(probs, k=1)
+        
+        top_actions_list = []
+        action_idx = top_indices[0].item()
+        action_data = action_space_list[action_idx] if action_idx < len(action_space_list) else {"learning_rate": "unknown"}
+        action_with_prob = action_data.copy()
+        if "score" in action_with_prob:
+            del action_with_prob["score"]
+        action_with_prob["probability"] = round(top_probs[0].item(), 4)
+        top_actions_list.append(action_with_prob)
+
+
+        # Determine pierce_decision based on accuracy values, handling None
+        if accuracy is not None and prev_accuracy is not None and accuracy >= prev_accuracy and accuracy < baseline_accuracy:
+            pierce_decision = True
+        else:
+            pierce_decision = False
+            
+        # Append to rlaf2pierce in DB
+        current_timestamp = str(int(time.time()))
+        new_rlaf2pierce_entry = {
+            "actions": top_actions_list,
+            "pierce_or_not": pierce_decision,
+            "timestamp": current_timestamp
+        }
+        print(new_rlaf2pierce_entry)
+        if instance_data: # Only append if instance_data is not None
+            updates_to_apply.append(append_to_rlaf2pierce(instance_data, new_rlaf2pierce_entry))
+
+        # Write outputs to files (for block output)
+        with open(args.pierce_or_not, 'w') as f:
+            f.write(str(pierce_decision).lower()) # Write as 'true' or 'false'
+        with open(args.top_action, 'w') as f:
+            f.write(json.dumps(top_actions_list))
+        with open(args.updates_list, 'w') as f:
+            f.write(json.dumps(updates_to_apply))
+
+    args:
+      - --pierce_or_not
+      - {outputPath: pierce_or_not}
+      - --top_action
+      - {outputPath: top_action}
+      - --db_data
+      - {inputPath: db_data}
+      - --updates_list
+      - {outputPath: updates_list}
