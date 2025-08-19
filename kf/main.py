@@ -5,7 +5,7 @@ import requests
 import time
 
 def get_access_token():
-    url = "https://ig.aidtaas.com/mobius-iam-service/v1.0/login"
+    url = "https://ig.mobiusdtaas.ai/mobius-iam-service/v1.0/login"
     payload = json.dumps({
         "userName": "aidtaas@gaiansolutions.com",
         "password": "Gaian@123",
@@ -19,7 +19,7 @@ def get_access_token():
     return access_token
 
 def trigger_pipeline(config):
-    url = f"https://ig.aidtaas.com/bob-service-test/v1.0/pipeline/trigger/ml?pipelineId={config['pipeline_id']}"
+    url = f"https://ig.mobiusdtaas.ai/bob-service-test/v1.0/pipeline/trigger/ml?pipelineId={config['pipeline_id']}"
     payload = json.dumps({
         "pipelineType": "ML",
         "containerResources": {},
@@ -42,7 +42,7 @@ def get_pipeline_status(config):
     access_token = config['access_token']
     pipeline_id = config['pipeline_id']
     run_id = config['run_id']
-    url = f"https://ig.aidtaas.com/bob-service-test/v1.0/pipeline/{pipeline_id}/status/ml/{run_id}"
+    url = f"https://ig.mobiusdtaas.ai/bob-service-test/v1.0/pipeline/{pipeline_id}/status/ml/{run_id}"
     headers = {
         'accept': 'application/json',
         'Authorization': f'Bearer {access_token}'
@@ -54,7 +54,7 @@ def get_pipeline_status(config):
     return latest_state['state']
 
 def get_instances(access_token):
-    url = "https://ig.aidtaas.com/pi-entity-instances-service/v3.0/schemas/685a9dcd08232436a767c98a/instances/list"
+    url = "https://ig.mobiusdtaas.ai/pi-entity-instances-service/v3.0/schemas/685a9dcd08232436a767c98a/instances/list"
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json"
@@ -65,7 +65,7 @@ def get_instances(access_token):
     return response.json()
 
 def update_instance(access_token, instance_id, field_to_update, new_value):
-    url = "https://ig.aidtaas.com/pi-entity-instances-service/v2.0/schemas/685a9dcd08232436a767c98a/instances"
+    url = "https://ig.mobiusdtaas.ai/pi-entity-instances-service/v2.0/schemas/685a9dcd08232436a767c98a/instances"
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json"

@@ -24,7 +24,7 @@ implementation:
         args = parser.parse_args()
 
         def get_access_token():
-            login_url = "https://ig.aidtaas.com/mobius-iam-service/v1.0/login"
+            login_url = "https://ig.mobiusdtaas.ai/mobius-iam-service/v1.0/login"
             headers = {
                 "content-type": "application/json",
                 "mask": "false"
@@ -40,7 +40,7 @@ implementation:
             return response.json()["accessToken"]
 
         def update_instance(access_token, instance_id, field_to_update, new_value):
-            update_url = "https://ig.aidtaas.com/pi-entity-instances-service/v2.0/schemas/68a44cd2eed84d47877a3f5e/instances"
+            update_url = "https://ig.mobiusdtaas.ai/pi-entity-instances-service/v2.0/schemas/68a44cd2eed84d47877a3f5e/instances"
             headers = {
                 "Authorization": f"Bearer {access_token}",
                 "Content-Type": "application/json"
