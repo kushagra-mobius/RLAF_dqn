@@ -28,10 +28,10 @@ implementation:
         ls -l "$0"
         ls -l "$1"
         ls -l "$2"
-        cp "$0"/data generate_data/machine-1-1_train.pkl
-        cp "$1"/data generate_data/machine-1-1_test.pkl
-        cp "$2"/data generate_data/machine-1-1_test_label.pkl
-        rm "$0"/data "$1"/data "$2"/data
+        cp "$0" generate_data/machine-1-1_train.pkl
+        cp "$1" generate_data/machine-1-1_test.pkl
+        cp "$2" generate_data/machine-1-1_test_label.pkl
+        rm "$0" "$1" "$2"
         echo "--- After moving input files (contents of generate_data) ---"
         ls -l generate_data
 
@@ -59,7 +59,7 @@ implementation:
         # Move the zip file to the output path
         echo "--- Before moving zip to output path ---"
         ls -l processed_data.zip
-        mv processed_data.zip "$3"
+        mv processed_data.zip "$3"/data
 
     args:
       - {inputPath: train_data}
