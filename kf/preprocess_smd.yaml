@@ -1,0 +1,56 @@
+name: Preprocess SMD data
+description: Takes raw SMD data, runs the preprocessing script, and outputs a zipped folder with the processed data.
+inputs:
+  - {name: train_data, type: Dataset}
+  - {name: test_data, type: Dataset}
+  - {name: anomaly_data, type: Dataset}
+outputs:
+  - {name: processed_data_zip, type: Dataset}
+implementation:
+  container:
+    image: python:3.9
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        apt-get update && apt-get install -y git zip
+        pip install pandas scikit-learn
+
+        # Clone the repository that contains the generate_training_data.py script
+        git clone https://github.com/huankoh/CST-GL
+        cd CST-GL
+
+        # The input data from the previous component will be available at these paths
+        # We need to move them to where the script expects them.
+        mkdir -p generate_data
+        mv "$0" generate_data/machine-1-1_train.pkl
+        mv "$1" generate_data/machine-1-1_test.pkl
+        mv "$2" generate_data/machine-1-1_test_label.pkl
+
+        # The script has a bug, fix it with sed
+        sed -i 's/train\.append(\[/pd.concat([train,/g' generate_data/generate_training_data.py
+
+        # Create the output directory for the script
+        mkdir -p data/machine-1-1
+
+        # Run the preprocessing script
+        python generate_data/generate_training_data.py \
+          --output_dir 'data/machine-1-1' \
+          --train_path 'generate_data/machine-1-1_train.pkl' \
+          --test_path 'generate_data/machine-1-1_test.pkl' \
+          --anomaly_path 'generate_data/machine-1-1_test_label.pkl' \
+          --window_size 100 \
+          --val_ratio 0.3
+
+        # Zip the output directory
+        zip -r /processed_data.zip data/machine-1-1
+
+        # Move the zip file to the output path
+        mv /processed_data.zip "$3"
+
+    args:
+      - {inputPath: train_data}
+      - {inputPath: test_data}
+      - {inputPath: anomaly_data}
+      - {outputPath: processed_data_zip}

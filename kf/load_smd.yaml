@@ -1,0 +1,74 @@
+name: Load SMD data
+description: Clones a repository, processes data, and outputs train, test, and anomaly files as pickled datasets.
+outputs:
+  - {name: train_data, type: Dataset}
+  - {name: test_data, type: Dataset}
+  - {name: anomaly_data, type: Dataset}
+implementation:
+  container:
+    image: python:3.9
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        apt-get update && apt-get install -y git
+        pip install pandas scikit-learn
+        
+        WORKDIR="interfusion_temp"
+        REPO_URL="https://github.com/zhhlee/InterFusion.git"
+        
+        mkdir -p $WORKDIR
+        cd $WORKDIR
+        
+        git clone $REPO_URL
+        cd InterFusion
+        
+        mkdir -p /generate_data
+        cp data/processed/mach* /generate_data/
+        
+        cd /
+        rm -rf $WORKDIR
+        
+        exec "$0" "$@"
+      - python3
+      - -u
+      - -c
+      - |
+        import argparse
+        import os
+        import pickle
+
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--train_data', type=str, required=True)
+        parser.add_argument('--test_data', type=str, required=True)
+        parser.add_argument('--anomaly_data', type=str, required=True)
+        args = parser.parse_args()
+
+        # These are the paths created by the initial shell command
+        original_train_path = '/generate_data/machine-1-1_train.pkl'
+        original_test_path = '/generate_data/machine-1-1_test.pkl'
+        original_anomaly_path = '/generate_data/machine-1-1_test_label.pkl'
+
+        # Load the original pickle files and save them to the output paths
+        with open(original_train_path, 'rb') as f_in, open(args.train_data, 'wb') as f_out:
+            data = pickle.load(f_in)
+            pickle.dump(data, f_out)
+        
+        with open(original_test_path, 'rb') as f_in, open(args.test_data, 'wb') as f_out:
+            data = pickle.load(f_in)
+            pickle.dump(data, f_out)
+
+        with open(original_anomaly_path, 'rb') as f_in, open(args.anomaly_data, 'wb') as f_out:
+            data = pickle.load(f_in)
+            pickle.dump(data, f_out)
+
+        print(f"Successfully processed and saved data to output paths.")
+
+    args:
+      - --train_data
+      - {outputPath: train_data}
+      - --test_data
+      - {outputPath: test_data}
+      - --anomaly_data
+      - {outputPath: anomaly_data}
