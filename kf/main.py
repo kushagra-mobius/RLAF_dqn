@@ -3,6 +3,11 @@ import json
 import argparse
 import requests
 import time
+import torch
+import pickle
+from nesy_factory.GNNs import create_model
+from torch_geometric.datasets import EllipticBitcoinDataset
+from nesy_factory.utils import get_config_by_name
 
 def get_access_token():
     url = "https://ig.mobiusdtaas.ai/mobius-iam-service/v1.0/login"
@@ -54,7 +59,7 @@ def get_pipeline_status(config):
     return latest_state['state']
 
 def get_instances(access_token):
-    url = "https://ig.mobiusdtaas.ai/pi-entity-instances-service/v3.0/schemas/685a9dcd08232436a767c98a/instances/list"
+    url = "https://ig.mobiusdtaas.ai/pi-entity-instances-service/v3.0/schemas/68a44cd2eed84d47877a3f5e/instances/list"
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json"
@@ -65,7 +70,7 @@ def get_instances(access_token):
     return response.json()
 
 def update_instance(access_token, instance_id, field_to_update, new_value):
-    url = "https://ig.mobiusdtaas.ai/pi-entity-instances-service/v2.0/schemas/685a9dcd08232436a767c98a/instances"
+    url = "https://ig.mobiusdtaas.ai/pi-entity-instances-service/v2.0/schemas/68a44cd2eed84d47877a3f5e/instances"
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json"
@@ -140,8 +145,8 @@ def run_rlaf_once(init_metrics):
     append_to_pierce2rlaf(access_token, new_pierce2rlaf_entry)
     
     config = {
-        "pipeline_id": "0197ab1d-cb4c-7d06-9e68-3846086e9f9b",
-        "experiment_id": "37e5cbe2-9fd7-4bc1-ad49-86d8a4a2c2e3",
+        "pipeline_id": "0198c6d0-bd36-70a8-a3d2-a1796601d631",
+        "experiment_id": "a419f72e-dbf6-42d7-86fe-f694eb09a9dc",
         "access_token": access_token
     }
     
@@ -149,28 +154,108 @@ def run_rlaf_once(init_metrics):
     pierce_params = get_pierce_params()
     return pierce_params
 
-def dummy_pierce_function(params):
-    print("Dummy piercing function called with parameters:")
-    print(json.dumps(params, indent=4))
-    # This function should return new metrics to be used in the next RLAF run
-    # For now, returning the same params as a placeholder
-    return {
-        "accuracy": 0.86,
-        "prev_accuracy": 0.85,
-        "epochs": params["epochs"]
+def model_retraining(params, model_path, data_path, config_path):
+    print(f"Starting model retraining with parameters: {params}")
+
+    # Load data
+    try:
+        with open(data_path, "rb") as f:
+            data = pickle.load(f)
+        print(f"Successfully loaded data from {data_path}")
+    except Exception as e:
+        print(f"Error loading data: {e}")
+        return
+
+    # Load config
+    try:
+        with open(config_path) as f:
+            import yaml
+            config = yaml.safe_load(f)
+            config = config['basic_tgcn']
+        print(f"Successfully loaded config from {config_path}")
+    except Exception as e:
+        print(f"Error loading config: {e}")
+        return
+
+    # Update config with RLAF params
+    config["epochs"] = params.get("epochs", config.get("epochs"))
+    config["optimiser_params"]["learning_rate"] = params["optimiser_params"].get("learning_rate", config["optimiser_params"].get("learning_rate"))
+    print(f"Updated training config: {config}")
+
+    # Load model
+    model_name = config.get('model_name', 'tgcn')
+    model = create_model(model_name, config)
+    model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
+    print(f"Successfully loaded model from {model_path}")
+
+    # Train model
+    epochs = config.get('epochs', 100)
+    print(f"Training for {epochs} epochs...")
+    for epoch in range(epochs):
+        loss = model.train_step(data, data.train_mask)
+        if epoch % 10 == 0:
+            print(f"Epoch {epoch:03d} | Loss: {loss:.4f}")
+    print("Finished model training.")
+
+    # Save trained model
+    print(f"Saving retrained model to {model_path}...")
+    torch.save(model.state_dict(), model_path)
+    print("Retrained model saved.")
+
+    # Create new metrics for the next RLAF run
+    new_metrics = {
+        "accuracy": 0.86, # Placeholder, should be calculated
+        "prev_accuracy": 0.85, # Placeholder
+        "b1": config["optimiser_params"]["beta_1"],
+        "b2": config["optimiser_params"]["beta_2"],
+        "epochs": config["epochs"],
+        "lr": config["optimiser_params"]["learning_rate"]
     }
+    return new_metrics
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--trained_model', type=str, required=True)
-    parser.add_argument('--init_metrics', type=str, required=True)
-    parser.add_argument('--rlaf_output', type=str, required=True)
-    args = parser.parse_args()
+    # Hardcoded paths for local testing
+    trained_model_path = "data/tgcn.pth"
+    init_metrics_path = "data/init_metrics.json"
+    rlaf_output_path = "data/rlaf_output.json"
+    data_path = "data/elliptic.pkl"
+    config_path = "tgcn_configs.yaml"
 
-    print(f"Trained model path: {args.trained_model}")
-    print(f"Initial metrics path: {args.init_metrics}")
+    # --- 1. Load Dataset ---
+    print("\nLoading Elliptic Bitcoin dataset...")
+    dataset = EllipticBitcoinDataset(root='data/EllipticBitcoin')
+    data = dataset[0]
+    print("Dataset loaded successfully.")
 
-    with open(args.init_metrics, 'r') as f:
+    # Save data to pickle file
+    os.makedirs(os.path.dirname(data_path), exist_ok=True)
+    with open(data_path, 'wb') as f:
+        pickle.dump(data, f)
+
+    # --- 2. Create Model ---
+    print("\nCreating TGCN model from config...")
+    config = get_config_by_name('basic_tgcn', config_path)
+    config['input_dim'] = data.num_features
+    model = create_model('tgcn', config)
+    print("Model created successfully.")
+
+    # Save initial model
+    os.makedirs(os.path.dirname(trained_model_path), exist_ok=True)
+    torch.save(model.state_dict(), trained_model_path)
+
+    # --- 3. Create Initial Metrics ---
+    os.makedirs(os.path.dirname(init_metrics_path), exist_ok=True)
+    with open(init_metrics_path, 'w') as f:
+        json.dump({
+            "accuracy": 0.85,
+            "prev_accuracy": 0.84,
+            "b1": 0.9,
+            "b2": 0.999,
+            "epochs": 10,
+            "lr": 0.01
+        }, f)
+
+    with open(init_metrics_path, 'r') as f:
         current_metrics = json.load(f)
 
     while True:
@@ -178,14 +263,14 @@ def main():
         print(f"RLAF output params: {rlaf_params}")
 
         if rlaf_params.get("pierce_model"):
-            print("pierce_or_not is true, calling dummy function and looping.")
-            current_metrics = dummy_pierce_function(rlaf_params)
+            print("pierce_or_not is true, retraining model and looping.")
+            current_metrics = model_retraining(rlaf_params, trained_model_path, data_path, config_path)
         else:
             print("pierce_or_not is false, exiting loop.")
             break
     
-    os.makedirs(os.path.dirname(args.rlaf_output), exist_ok=True)
-    with open(args.rlaf_output, 'w') as f:
+    os.makedirs(os.path.dirname(rlaf_output_path), exist_ok=True)
+    with open(rlaf_output_path, 'w') as f:
         json.dump(rlaf_params, f, indent=4)
 
 if __name__ == "__main__":
