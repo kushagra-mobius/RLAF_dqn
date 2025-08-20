@@ -52,7 +52,8 @@ implementation:
         zip -r processed_data.zip data/machine-1-1
 
         # Move the zip file to the output path
-        mv processed_data.zip "$3"
+        mkdir -p "$(dirname "$3")"
+        cp processed_data.zip "$3"
 
     args:
       - {inputPath: train_data}
