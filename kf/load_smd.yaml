@@ -51,14 +51,17 @@ implementation:
         original_anomaly_path = '/generate_data/machine-1-1_test_label.pkl'
 
         # Load the original pickle files and save them to the output paths
+        os.makedirs(os.path.dirname(args.train_data), exist_ok=True)
         with open(original_train_path, 'rb') as f_in, open(args.train_data, 'wb') as f_out:
             data = pickle.load(f_in)
             pickle.dump(data, f_out)
         
+        os.makedirs(os.path.dirname(args.test_data), exist_ok=True)
         with open(original_test_path, 'rb') as f_in, open(args.test_data, 'wb') as f_out:
             data = pickle.load(f_in)
             pickle.dump(data, f_out)
 
+        os.makedirs(os.path.dirname(args.anomaly_data), exist_ok=True)
         with open(original_anomaly_path, 'rb') as f_in, open(args.anomaly_data, 'wb') as f_out:
             data = pickle.load(f_in)
             pickle.dump(data, f_out)
