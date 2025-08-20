@@ -28,9 +28,10 @@ implementation:
         ls -l "$0"
         ls -l "$1"
         ls -l "$2"
-        mv "$0"/data generate_data/machine-1-1_train.pkl
-        mv "$1"/data generate_data/machine-1-1_test.pkl
-        mv "$2"/data generate_data/machine-1-1_test_label.pkl
+        cp "$0"/data generate_data/machine-1-1_train.pkl
+        cp "$1"/data generate_data/machine-1-1_test.pkl
+        cp "$2"/data generate_data/machine-1-1_test_label.pkl
+        rm "$0"/data "$1"/data "$2"/data
         echo "--- After moving input files (contents of generate_data) ---"
         ls -l generate_data
 
