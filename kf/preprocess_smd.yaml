@@ -17,6 +17,10 @@ implementation:
         apt-get update && apt-get install -y git zip
         pip install pandas scikit-learn
 
+        # Create and change to a temporary working directory
+        TMP_DIR=$(mktemp -d -t cst-gl-XXXXXXXXXX)
+        cd "$TMP_DIR"
+
         # Clone the repository that contains the generate_training_data.py script
         git clone https://github.com/huankoh/CST-GL
         cd CST-GL
@@ -24,16 +28,10 @@ implementation:
         # The input data from the previous component will be available at these paths
         # We need to move them to where the script expects them.
         mkdir -p generate_data
-        echo "--- Before moving input files ---"
-        ls -l "$0"
-        ls -l "$1"
-        ls -l "$2"
         cp "$0" generate_data/machine-1-1_train.pkl
         cp "$1" generate_data/machine-1-1_test.pkl
         cp "$2" generate_data/machine-1-1_test_label.pkl
-        rm "$0" "$1" "$2"
-        echo "--- After moving input files (contents of generate_data) ---"
-        ls -l generate_data
+        # rm "$0" "$1" "$2"
 
         # The script has a bug, fix it with sed
         sed -i 's/train\.append(\[/pd.concat([train,/g' generate_data/generate_training_data.py
@@ -51,14 +49,9 @@ implementation:
           --val_ratio 0.3
 
         # Zip the output directory
-        echo "--- Before zipping (contents of data/machine-1-1) ---"
-        ls -l data/machine-1-1
         zip -r processed_data.zip data/machine-1-1
-        echo "--- After zipping (contents of current directory) ---"
-        ls -l .
+
         # Move the zip file to the output path
-        echo "--- Before moving zip to output path ---"
-        ls -l processed_data.zip
         mv processed_data.zip "$3"/data
 
     args:
