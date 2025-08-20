@@ -24,9 +24,15 @@ implementation:
         # The input data from the previous component will be available at these paths
         # We need to move them to where the script expects them.
         mkdir -p generate_data
-        mv "$0" generate_data/machine-1-1_train.pkl
-        mv "$1" generate_data/machine-1-1_test.pkl
-        mv "$2" generate_data/machine-1-1_test_label.pkl
+        echo "--- Before moving input files ---"
+        ls -l "$0"
+        ls -l "$1"
+        ls -l "$2"
+        mv "$0"/data/machine-1-1_train.pkl generate_data/machine-1-1_train.pkl
+        mv "$1"/data/machine-1-1_test.pkl generate_data/machine-1-1_test.pkl
+        mv "$2"/data/machine-1-1_test_label.pkl generate_data/machine-1-1_test_label.pkl
+        echo "--- After moving input files (contents of generate_data) ---"
+        ls -l generate_data
 
         # The script has a bug, fix it with sed
         sed -i 's/train\.append(\[/pd.concat([train,/g' generate_data/generate_training_data.py
@@ -44,9 +50,14 @@ implementation:
           --val_ratio 0.3
 
         # Zip the output directory
+        echo "--- Before zipping (contents of data/machine-1-1) ---"
+        ls -l data/machine-1-1
         zip -r processed_data.zip data/machine-1-1
-
+        echo "--- After zipping (contents of current directory) ---"
+        ls -l .
         # Move the zip file to the output path
+        echo "--- Before moving zip to output path ---"
+        ls -l processed_data.zip
         mv processed_data.zip "$3"/data
 
     args:
