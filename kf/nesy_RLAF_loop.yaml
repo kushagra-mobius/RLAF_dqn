@@ -188,16 +188,18 @@ implementation:
 
             # Load config
             try:
-                with open(config_path) as f:
-                    config = json.load(f)
-                print(f"Successfully loaded config from {config_path}")
+                config = json.loads(config_path)
+                print(f"Successfully loaded config from string")
+            except json.JSONDecodeError as e:
+                print(f"Error decoding config JSON: {e}")
+                return
             except Exception as e:
-                print(f"Error loading config: {e}")
+                print(f"An unexpected error occurred loading config: {e}")
                 return
 
             # Update config with RLAF params
             config["epochs"] = params.get("epochs", config.get("epochs"))
-            config["learning_rate"] = params["optimiser_params"].get("learning_rate", config["optimiser_params"].get("learning_rate"))
+            config["learning_rate"] = params.get("learning_rate", config.get("learning_rate"))
             print(f"Updated training config: {config}")
 
             # Load model
@@ -269,4 +271,4 @@ implementation:
       - --data_path
       - {inputPath: data_path}
       - --config
-      - {inputValue: config}
+      - {inputPath: config}
