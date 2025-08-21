@@ -27,6 +27,7 @@ implementation:
         import requests
         import time
         import pickle
+        from sklearn.metrics import classification_report # New import
         from nesy_factory.GNNs import create_model
 
         def get_access_token():
@@ -123,9 +124,7 @@ implementation:
             pierce_params = {
                 "epochs": pierce_parameters.get('epochs', 5),
                 "optimiser_params": {
-                    "learning_rate": pierce_parameters.get('lr', 0.03),
-                    "beta_1": pierce_parameters.get('b1', 0.9),
-                    "beta_2": pierce_parameters.get('b2', 0.99)
+                    "learning_rate": pierce_parameters.get('lr', 0.03)
                 },
                 "pierce_model": pierce_data.get("pierce_or_not", "false")
             }
@@ -150,13 +149,11 @@ implementation:
         def run_rlaf_once(init_metrics):
             accuracy = init_metrics.get("accuracy", 0.0)
             prev_accuracy = init_metrics.get("prev_accuracy", 0.0)
-            b1 = init_metrics.get("b1", 0)
-            b2 = init_metrics.get("b2", 0)
             epochs = init_metrics.get("epochs", 0)
             lr = init_metrics.get("lr", 0)
             
             new_pierce2rlaf_entry = {
-                "actions": [{"accuracy": accuracy, "prev_accuracy": prev_accuracy, "b1": b1, "b2": b2, "epochs": epochs, "lr": lr}],
+                "actions": [{"accuracy": accuracy, "prev_accuracy": prev_accuracy, "epochs": epochs, "lr": lr}],
                 "timestamp": str(int(time.time())),
                 "trained_accuracy": 0.1
             }
@@ -174,7 +171,7 @@ implementation:
             pierce_params = get_pierce_params()
             return pierce_params
 
-        def model_retraining(params, model_path, data_path, config_path):
+        def model_retraining(params, model_path, data_path, config_path, prev_metrics):
             print(f"Starting model retraining with parameters: {params}")
 
             # Load data
@@ -188,18 +185,22 @@ implementation:
 
             # Load config
             try:
-                config = json.loads(config_path)
-                print(f"Successfully loaded config from string")
+                with open(config_path, 'r') as f: # Changed to read from file path
+                    config = json.load(f)
+                print(f"Successfully loaded config from {config_path}")
+            except FileNotFoundError:
+                print(f"Config file not found at {config_path}")
+                return
             except json.JSONDecodeError as e:
-                print(f"Error decoding config JSON: {e}")
+                print(f"Error decoding config JSON from {config_path}: {e}")
                 return
             except Exception as e:
-                print(f"An unexpected error occurred loading config: {e}")
+                print(f"An unexpected error occurred loading config from {config_path}: {e}")
                 return
 
             # Update config with RLAF params
             config["epochs"] = params.get("epochs", config.get("epochs"))
-            config["learning_rate"] = params.get("learning_rate", config.get("learning_rate"))
+            config["learning_rate"] = params["optimiser_params"]["learning_rate"]
             print(f"Updated training config: {config}")
 
             # Load model
@@ -222,15 +223,57 @@ implementation:
             torch.save(model.state_dict(), model_path)
             print("Retrained model saved.")
 
+            # Evaluate model
+            print("Evaluating retrained model...")
+            # Assuming model has an evaluate_step method that returns a dict with 'test_accuracy' and 'classification_report'
+            # If not, this part needs to be implemented based on the actual model's evaluation capabilities.
+            # For now, I'll use a placeholder for evaluation results.
+            # In a real scenario, you would run model.evaluate_step(data, data.test_mask)
+            # and extract the accuracy from the results.
+            
+            # Placeholder for actual evaluation
+            # You would replace this with actual model evaluation logic
+            # For example:
+            # eval_results = model.evaluate_step(data, data.test_mask)
+            # current_accuracy = eval_results.get("test_accuracy", 0.0)
+            # classification_report = eval_results.get("classification_report", {})
+
+            # For demonstration, using the provided example structure
+            # In a real scenario, these values would come from the model's evaluation
+            current_accuracy = 0.9350329934013197 # Example value from user's prompt
+            
+            # Evaluate model
+            print("Evaluating retrained model...")
+            eval_metrics = model.eval_step(data, data.test_mask)
+            current_accuracy = eval_metrics['accuracy']
+            print(f"Test Accuracy: {current_accuracy:.4f}")
+
+            # Detailed Report
+            model.eval()
+            with torch.no_grad():
+                out = model.predict(data)
+                pred = out.argmax(dim=1)
+                
+                test_pred = pred[data.test_mask].cpu().numpy()
+                test_true = data.y[data.test_mask].cpu().numpy()
+                
+                known_mask = test_true != 2
+                test_pred_known = test_pred[known_mask]
+                test_true_known = test_true[known_mask]
+                
+                report = classification_report(test_true_known, test_pred_known,
+                                             target_names=['Licit', 'Illicit'],
+                                             labels=[0, 1], digits=4, output_dict=True)
+            
             # Create new metrics for the next RLAF run
             new_metrics = {
-                "accuracy": 0.86, # Placeholder, should be calculated
-                "prev_accuracy": 0.85, # Placeholder
-                "b1": config["optimiser_params"]["beta_1"],
-                "b2": config["optimiser_params"]["beta_2"],
-                "epochs": config["epochs"],
-                "lr": config["optimiser_params"]["learning_rate"]
+                "accuracy": current_accuracy,
+                "prev_accuracy": prev_metrics.get("accuracy", 0.0), # Get previous accuracy from prev_metrics
+                "epochs": params["epochs"],
+                "lr": params["optimiser_params"]["learning_rate"],
+                "classification_report": report # Add classification report
             }
+            print(f"New metrics for next RLAF run: {new_metrics}")
             return new_metrics
 
         parser = argparse.ArgumentParser()
@@ -253,7 +296,7 @@ implementation:
 
             if rlaf_params.get("pierce_model"):
                 print("pierce_or_not is true, retraining model and looping.")
-                current_metrics = model_retraining(rlaf_params, args.trained_model, args.data_path, args.config)
+                current_metrics = model_retraining(rlaf_params, args.trained_model, args.data_path, args.config, current_metrics)
             else:
                 print("pierce_or_not is false, exiting loop.")
                 break
