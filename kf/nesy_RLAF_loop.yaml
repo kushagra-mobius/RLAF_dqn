@@ -2,7 +2,7 @@ name: Piercing
 description: Triggers the RLAF pipeline once with initial metrics and returns the output.
 inputs:
   - {name: trained_model, type: Model}
-  - {name: init_metrics, type: Dataset}
+  - {name: init_metrics, type: Metrics}
   - {name: data_path, type: Dataset}
   - {name: config, type: String}
 
