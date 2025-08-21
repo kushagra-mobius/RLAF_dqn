@@ -288,7 +288,14 @@ implementation:
         print(f"Initial metrics path: {args.init_metrics}")
 
         with open(args.init_metrics, 'r') as f:
-            current_metrics = json.load(f)
+            initial_metrics_data = json.load(f)
+        
+        current_metrics = {
+            "accuracy": initial_metrics_data.get("test_accuracy", 0.0),
+            "prev_accuracy": 0.0, # Initial prev_accuracy is 0
+            "epochs": initial_metrics_data.get("epochs", 0), # Assuming epochs might be in initial metrics
+            "lr": initial_metrics_data.get("lr", 0) # Assuming lr might be in initial metrics
+        }
 
         while True:
             rlaf_params = run_rlaf_once(current_metrics)
