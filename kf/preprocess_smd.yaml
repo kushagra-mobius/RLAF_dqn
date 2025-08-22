@@ -114,9 +114,9 @@ implementation:
             seq_out_len = config['seq_out_len']
 
             # Load and process .pkl files
-            with open(os.path.join(dataset_dir, 'train.pkl'), 'rb') as f:
+            with open(os.path.join(dataset_dir, 'machine-1-1_train.pkl'), 'rb') as f:
                 train_raw = pickle.load(f)
-            with open(os.path.join(dataset_dir, 'test.pkl'), 'rb') as f:
+            with open(os.path.join(dataset_dir, 'machine-1-1_test.pkl'), 'rb') as f:
                 test_raw = pickle.load(f)
 
             x_train, y_train = create_sliding_windows(train_raw, seq_in_len, seq_out_len)
@@ -166,7 +166,7 @@ implementation:
             }
             
             # The dataset_dir is where generate_training_data.py outputs its files
-            dataset_dir = 'data/machine-1-1'
+            dataset_dir = 'generate_data'
             
             data_dict = load_dataset(dataset_dir, config)
             data = DataWrapper(data_dict)
