@@ -1,11 +1,11 @@
 name: Preprocess SMD data
-description: Takes raw SMD data, runs the preprocessing script, and outputs a zipped folder with the processed data.
+description: Takes raw SMD data, runs the preprocessing script, and outputs a pickled DataWrapper object with the processed data.
 inputs:
   - {name: train_data, type: Dataset}
   - {name: test_data, type: Dataset}
   - {name: anomaly_data, type: Dataset}
 outputs:
-  - {name: processed_data_zip, type: Dataset}
+  - {name: processed_data_pickle, type: Dataset}
 implementation:
   container:
     image: python:3.9
@@ -14,8 +14,8 @@ implementation:
       - -c
       - |
         set -e
-        apt-get update && apt-get install -y git zip
-        pip install pandas scikit-learn
+        apt-get update && apt-get install -y git
+        pip install pandas scikit-learn numpy
 
         # Create and change to a temporary working directory
         TMP_DIR=$(mktemp -d -t cst-gl-XXXXXXXXXX)
@@ -31,7 +31,6 @@ implementation:
         cp "$0" generate_data/machine-1-1_train.pkl
         cp "$1" generate_data/machine-1-1_test.pkl
         cp "$2" generate_data/machine-1-1_test_label.pkl
-        # rm "$0" "$1" "$2"
 
         # The script has a bug, fix it with sed
         sed -i 's/train\.append(\[/pd.concat([train,/g' generate_data/generate_training_data.py
@@ -48,15 +47,145 @@ implementation:
           --window_size 100 \
           --val_ratio 0.3
 
-        # Zip the output directory
-        zip -r processed_data.zip data/machine-1-1
+        # --- New Python script to create and pickle DataWrapper object ---
+        cat > create_data_pickle.py << EOF
+import numpy as np
+import os
+import pickle
+import pandas as pd
 
-        # Move the zip file to the output path
-        mkdir -p "$(dirname "$3")"
-        cp processed_data.zip "$3"
+class DataWrapper:
+    def __init__(self, data_dict):
+        self.__dict__.update(data_dict)
+
+class StandardScaler():
+    """
+    Standard the input
+    """
+    def __init__(self, mean, std):
+        self.mean = mean
+        self.std = std
+    def transform(self, data):
+        return (data - self.mean) / self.std
+    def inverse_transform(self, data):
+        return (data * self.std) + self.mean
+
+class DataLoaderM(object):
+    def __init__(self, xs, ys, batch_size, pad_with_last_sample=True):
+        self.batch_size = batch_size
+        self.current_ind = 0
+        if pad_with_last_sample:
+            num_padding = (batch_size - (len(xs) % batch_size)) % batch_size
+            x_padding = np.repeat(xs[-1:], num_padding, axis=0)
+            y_padding = np.repeat(ys[-1:], num_padding, axis=0)
+            xs = np.concatenate([xs, x_padding], axis=0)
+            ys = np.concatenate([ys, y_padding], axis=0)
+        self.size = len(xs)
+        self.num_batch = int(self.size // self.batch_size)
+        self.xs = xs
+        self.ys = ys
+
+    def shuffle(self):
+        permutation = np.random.permutation(self.size)
+        xs, ys = self.xs[permutation], self.ys[permutation]
+        self.xs = xs
+        self.ys = ys
+
+    def get_iterator(self):
+        self.current_ind = 0
+        def _wrapper():
+            while self.current_ind < self.num_batch:
+                start_ind = self.batch_size * self.current_ind
+                end_ind = min(self.size, self.batch_size * (self.current_ind + 1))
+                x_i = self.xs[start_ind: end_ind, ...]
+                y_i = self.ys[start_ind: end_ind, ...]
+                yield (x_i, y_i)
+                self.current_ind += 1
+        return _wrapper()
+
+def create_sliding_windows(data, seq_in_len, seq_out_len):
+    x, y = [], []
+    num_samples = len(data)
+    for i in range(num_samples - seq_in_len - seq_out_len + 1):
+        x.append(data[i : i + seq_in_len])
+        y.append(data[i + seq_in_len : i + seq_in_len + seq_out_len])
+    return np.array(x), np.array(y)
+
+def load_dataset(dataset_dir, config, scaling_required=True):
+    batch_size = config['batch_size']
+    seq_in_len = config['seq_in_len']
+    seq_out_len = config['seq_out_len']
+
+    # Load and process .pkl files
+    with open(os.path.join(dataset_dir, 'train.pkl'), 'rb') as f:
+        train_raw = pickle.load(f)
+    with open(os.path.join(dataset_dir, 'test.pkl'), 'rb') as f:
+        test_raw = pickle.load(f)
+
+    x_train, y_train = create_sliding_windows(train_raw, seq_in_len, seq_out_len)
+    x_test, y_test = create_sliding_windows(test_raw, seq_in_len, seq_out_len)
+
+    # Add feature dimension
+    x_train = np.expand_dims(x_train, axis=-1)
+    y_train = np.expand_dims(y_train, axis=-1)
+    x_test = np.expand_dims(x_test, axis=-1)
+    y_test = np.expand_dims(y_test, axis=-1)
+
+    # For simplicity, we'll use part of the training data as validation
+    num_train = int(len(x_train) * 0.8)
+    x_val, y_val = x_train[num_train:], y_train[num_train:]
+    x_train, y_train = x_train[:num_train], y_train[:num_train]
+
+    data = {}
+    data['x_train'], data['y_train'] = x_train, y_train
+    data['x_val'], data['y_val'] = x_val, y_val
+    data['x_test'], data['y_test'] = x_test, y_test
+    
+    scaler = StandardScaler(mean=data['x_train'][..., 0].mean(), std=data['x_train'][..., 0].std())
+
+    if scaling_required:
+        for category in ['train', 'val', 'test']:
+            data['x_' + category][..., 0] = scaler.transform(data['x_' + category][..., 0])
+
+    data['train_loader'] = DataLoaderM(data['x_train'], data['y_train'], batch_size)
+    data['val_loader'] = DataLoaderM(data['x_val'], data['y_val'], batch_size)
+    data['test_loader'] = DataLoaderM(data['x_test'], data['y_test'], batch_size)
+    data['scaler'] = scaler
+    
+    # Add dummy masks for compatibility with TGCN example structure
+    # Replaced torch.ones with np.ones as torch is not a dependency here
+    data['train_mask'] = np.ones(len(data['x_train']), dtype=bool)
+    data['test_mask'] = np.ones(len(data['x_test']), dtype=bool)
+    
+    return data
+
+if __name__ == '__main__':
+    # Hardcoded config values based on typical STGNN setup and existing generate_training_data.py
+    # batch_size is a common value, seq_in_len is from --window_size, seq_out_len is a common forecast horizon
+    config = {
+        'batch_size': 64,
+        'seq_in_len': 100,
+        'seq_out_len': 1
+    }
+    
+    # The dataset_dir is where generate_training_data.py outputs its files
+    dataset_dir = 'data/machine-1-1'
+    
+    data_dict = load_dataset(dataset_dir, config)
+    data = DataWrapper(data_dict)
+    
+    output_path = os.environ['PROCESSED_DATA_PICKLE_PATH']
+    
+    # Ensure the output directory exists
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    
+    with open(output_path, 'wb') as f:
+        pickle.dump(data, f)
+EOF
+        PROCESSED_DATA_PICKLE_PATH="$3" python create_data_pickle.py
 
     args:
       - {inputPath: train_data}
       - {inputPath: test_data}
       - {inputPath: anomaly_data}
-      - {outputPath: processed_data_zip}
+      - {outputPath: processed_data_pickle}
