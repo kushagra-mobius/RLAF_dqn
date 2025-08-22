@@ -116,8 +116,11 @@ implementation:
             # Load and process .pkl files
             with open(os.path.join(dataset_dir, 'machine-1-1_train.pkl'), 'rb') as f:
                 train_raw = pickle.load(f)
+            train_raw = np.array(train_raw, dtype=np.float32) # Explicitly convert to float32
+
             with open(os.path.join(dataset_dir, 'machine-1-1_test.pkl'), 'rb') as f:
                 test_raw = pickle.load(f)
+            test_raw = np.array(test_raw, dtype=np.float32) # Explicitly convert to float32
 
             x_train, y_train = create_sliding_windows(train_raw, seq_in_len, seq_out_len)
             x_test, y_test = create_sliding_windows(test_raw, seq_in_len, seq_out_len)
