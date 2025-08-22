@@ -59,9 +59,6 @@ implementation:
                 self.__dict__.update(data_dict)
 
         class StandardScaler():
-            """
-            Standard the input
-            """
             def __init__(self, mean, std):
                 self.mean = mean
                 self.std = std
