@@ -6,6 +6,7 @@ inputs:
   - {name: anomaly_data, type: Dataset}
 outputs:
   - {name: processed_data_pickle, type: Dataset}
+  - {name: weight_out, type: String, description: "Dummy weights as JSON string"}
 implementation:
   container:
     image: python:3.9
@@ -184,8 +185,26 @@ implementation:
         EOF
                 PROCESSED_DATA_PICKLE_PATH="$3" python create_data_pickle.py
 
+        # --- New Python script to create and save dummy weights ---
+        cat > create_dummy_weights.py << EOF
+        import json
+        import os
+
+        if __name__ == '__main__':
+            dummy_weights = {
+                "focal_loss_alpha": 0.5,
+                "class_weights": [1.0, 1.0, 1.0]
+            }
+            output_path = os.environ['WEIGHT_OUT_PATH']
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+            with open(output_path, 'w') as f:
+                json.dump(dummy_weights, f, indent=2)
+        EOF
+                        WEIGHT_OUT_PATH="$4" python create_dummy_weights.py
+
     args:
       - {inputPath: train_data}
       - {inputPath: test_data}
       - {inputPath: anomaly_data}
       - {outputPath: processed_data_pickle}
+      - {outputPath: weight_out}

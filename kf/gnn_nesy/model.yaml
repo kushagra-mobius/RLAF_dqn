@@ -2,7 +2,7 @@ name: Build Model
 description: Instantiates a model using create_model from the NeSy-Factory-Models GitHub repo, updates config with weights, and saves both model and updated config.
 
 inputs:
-  - { name: weight, type: String, description: "Weight info as JSON string (e.g., alpha, class_weights)" }
+  - { name: weight_in, type: String, description: "Weight info as JSON string (e.g., alpha, class_weights)" }
   - { name: config_str, type: String, description: "Model config as JSON string" }
   - { name: model_name, type: String, description: "Name of the model to instantiate (e.g., tgcn, ffnetwork)" }
 
@@ -30,7 +30,7 @@ implementation:
         from nesy_factory.GNNs import create_model
 
         parser = argparse.ArgumentParser()
-        parser.add_argument('--weight', type=str, required=True)
+        parser.add_argument('--weight_in', type=str, required=True)
         parser.add_argument('--config_str', type=str, required=True)
         parser.add_argument('--model_name', type=str, required=True)
         parser.add_argument('--model_out', type=str, required=True)
@@ -46,7 +46,7 @@ implementation:
 
         # with open(args.weight, 'r') as f:
         #     weight = json.load(f)
-        weight = json.loads(args.weight)
+        weight = json.loads(args.weight_in)
         config['focal_loss_alpha'] = weight['focal_loss_alpha']
         config['class_weights'] = weight['class_weights']
         config['model_name'] = args.model_name
@@ -79,8 +79,8 @@ implementation:
     args:
       - --model_name
       - {inputValue: model_name}
-      - --weight
-      - {inputValue: weight}
+      - --weight_in
+      - {inputValue: weight_in}
       - --config_str
       - {inputValue: config_str}
       - --model_out
