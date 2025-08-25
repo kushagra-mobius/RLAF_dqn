@@ -103,7 +103,7 @@ implementation:
         
             
         print("Loading config...")
-        print("config file is {args/config}")
+        print("config file is {args.config}")
         try: 
             config = json.loads(args.config)
         except : 
