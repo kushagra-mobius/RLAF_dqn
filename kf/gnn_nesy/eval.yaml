@@ -26,7 +26,9 @@ implementation:
         from sklearn.metrics import classification_report
         from nesy_factory.GNNs import create_model
         from nesy_factory.utils import get_config_by_name, set_random_seed
-        
+        class DataWrapper:
+          def __init__(self, data_dict):
+              self.__dict__.update(data_dict)
         # Parse arguments
         parser = argparse.ArgumentParser()
         parser.add_argument('--trained_model', type=str, required=True)
