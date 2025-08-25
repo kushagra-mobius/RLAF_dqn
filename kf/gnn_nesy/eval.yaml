@@ -8,7 +8,7 @@ outputs:
   - {name: metrics, type: Metrics}         # Evaluation metrics and reports
 implementation:
   container:
-    image: nikhilv215/nesy-factory:v2
+    image: nikhilv215/nesy-factory:v5
     command:
       - sh
       - -c

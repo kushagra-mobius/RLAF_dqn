@@ -1,0 +1,133 @@
+name: Upload to CDN
+description: Uploads a pickled DataWrapper and config string to a simulated CDN and provides URLs.
+inputs:
+  - {name: processed_data_pickle, type: Dataset, description: "Pickled DataWrapper object"}
+  - {name: config_string, type: String, description: "Configuration string (e.g., JSON)"}
+outputs:
+  - {name: pickle_cdn_url, type: String, description: "URL to the uploaded pickle file"}
+  - {name: config_cdn_url, type: String, description: "URL to the uploaded config string"}
+implementation:
+  container:
+    image: python:3.8-slim
+    command:
+      - sh
+      - -ec
+      - |
+        # The container image needs curl
+        if ! command -v curl &> /dev/null; then
+            echo "curl could not be found, installing..."
+            apt-get update > /dev/null && apt-get install -y curl > /dev/null
+        fi
+        exec "$0" "$@"
+      - python3
+      - -u
+      - -c
+      - |
+        import argparse
+        import subprocess
+        import json
+        import os
+        import uuid
+
+        parser = argparse.ArgumentParser(description="Upload files to a CDN.")
+        parser.add_argument('--processed_data_pickle', type=str, required=True, help='Path to the processed data pickle file.')
+        parser.add_argument('--config_string', type=str, required=True, help='Configuration string (e.g., JSON).')
+        parser.add_argument('--pickle_cdn_url', type=str, required=True, help='Path to the output file for the pickle CDN URL.')
+        parser.add_argument('--config_cdn_url', type=str, required=True, help='Path to the output file for the config CDN URL.')
+        args = parser.parse_args()
+
+        bearer_token = "eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICI3Ny1NUVdFRTNHZE5adGlsWU5IYmpsa2dVSkpaWUJWVmN1UmFZdHl5ejFjIn0.eyJleHAiOjE3NTMzOTM3MzksImlhdCI6MTc1MzM1NzczOSwianRpIjoiYjEwMWFjYWMtOWY4Ni00MTQ0LTkyMTItYTE1YmJmYWFiMDIyIiwiaXNzIjoiaHR0cDovL2tleWNsb2FrLXNlcnZpY2Uua2V5Y2xvYWsuc3ZjLmNsdXN0ZXIubG9jYWw6ODA4MC9yZWFsbXMvbWFzdGVyIiwiYXVkIjpbIkJPTFRaTUFOTl9CT1RfbW9iaXVzIiwiUEFTQ0FMX0lOVEVMTElHRU5DRV9tb2JpdXMiLCJNT05FVF9tb2JpdXMiLCJWSU5DSV9tb2JpdXMiLCJhY2NvdW50Il0sInN1YiI6IjJjZjc2ZTVmLTI2YWQtNGYyYy1iY2NjLWY0YmMxZTdiZmI2NCIsInR5cCI6IkJlYXJlciIsImF6cCI6IkhPTEFDUkFDWV9tb2JpdXMiLCJzaWQiOiJiNDI0NmFiNy0zNGIzLTRlZjctYmY1OS03NTYzODA0MDFkMTAiLCJhY3IiOiIxIiwiYWxsb3dlZC1vcmlnaW5zIjpbIi8qIl0sInJlYWxtX2FjY2VzcyI6eyJyb2xlcyI6WyI2N2UxNDcxNTA2ZGE3NTJiNzg3MTZkMjFfc3JlX2FkbWluIiwiNjdlMTQ3MTUwNmRhNzUyYjc4NzE2ZDIxX2JyX2FkbWluIiwiNjdlMTQ3MTUwNmRhNzUyYjc4NzE2ZDIxX3NlY3VyaXR5X2FkbWluIiwiNjdlMTQ3MTUwNmRhNzUyYjc4NzE2ZDIxX2RjZHJfYWRtaW4iLCI2N2UxNDcxNTA2ZGE3NTJiNzg3MTZkMjFfQWxlcnRzX1JlYWQiLCI2N2UxNDcxNTA2ZGE3NTJiNzg3MTZkMjFfY2RfZXhlY3V0ZSIsIjY3ZTE0NzE1MDZkYTc1MmI3ODcxNmQyMV9pYWNfZXhlY3V0ZSIsIjllNzYxYjc4LTY4YjgtNDE2Ny04MjNhLWlwMV90ZXN0X2N1c3RvbV9wcm9kdWN0X3JvbGUxMjM0NTYiLCJ1bWFfYXV0aG9yaXphdGlvbiIsIjY3ZTE0NzE1MDZkYTc1MmI3ODcxNmQyMV9kY2RyX2V4ZWN1dGUiLCI2N2UxNDcxNTA2ZGE3NTJiNzg3MTZkMjFfYnJfcmVhZCIsIjY3ZTE0NzE1MDZkYTc1MmI3ODcxNmQyMV9rOHNfcmVhZCIsIjY3ZTE0NzE1MDZkYTc1MmI3ODcxNmQyMV9DdXN0b21lcl9Xcml0ZSIsIjY3ZTE0NzE1MDZkYTc1MmI3ODcxNmQyMV9jaV93cml0ZSIsIjY3ZTE0NzE1MDZkYTc1MmI3ODcxNmQyMV9zcmVfd3JpdGUiLCIwYmM0OWZhZC05MTIzLTRjYWItYWI5YS0wNTU2Nzk2MDBkMjhfYzFhNzU2NjctYjM1ZC00NmNhLWJkNGEtZDk1NGY1YmIyY2Y5X3Rlc3Ricl9yZWFkIiwiNjdlMTQ3MTUwNmRhNzUyYjc4NzE2ZDIxX2RjZHJfcmVhZCIsIjY3ZTE0NzE1MDZkYTc1MmI3ODcxNmQyMV9BcHByb3ZhbHNfV3JpdGUiLCI2N2UxNDcxNTA2ZGE3NTJiNzg3MTZkMjFfUm9sZXNfUmVhZCIsIjY3ZTE0NzE1MDZkYTc1MmI3ODcxNmQyMV9BbGVydHNfV3JpdGUiLCI2N2UxNDcxNTA2ZGE3NTJiNzg3MTZkMjFfazhzX3dyaXRlIiwiNjdlMTQ3MTUwNmRhNzUyYjc4NzE2ZDIxX2lhY19hZG1pbiIsIjY3ZTE0NzE1MDZkYTc1MmI3ODcxNmQyMV9Qb2xpY2llc19SZWFkIiwiNjdlMTQ3MTUwNmRhNzUyYjc4NzE2ZDIxX2NkX2FkbWluIiwiNjdlMTQ3MTUwNmRhNzUyYjc4NzE2ZDIxX2NpX3JlYWQiLCI2N2UxNDcxNTA2ZGE3NTJiNzg3MTZkMjFfSW5mcmFfV3JpdGUiLCI2N2UxNDcxNTA2ZGE3NTJiNzg3MTZkMjFfUm9sZXNfV3JpdGUiLCI2N2UxNDcxNTA2ZGE3NTJiNzg3MTZkMjFfc3JlX2V4ZWN1dGUiLCI2N2UxNDcxNTA2ZGE3NTJiNzg3MTZkMjFfSW5mcmFfUmVhZCIsIjY3ZTE0NzE1MDZkYTc1MmI3ODcxNmQyMV9kY2RyX3dyaXRlIiwiNjdlMTQ3MTUwNmRhNzUyYjc4NzE2ZDIxX0xvZ3NfUmVhZCIsIjY3ZTE0NzE1MDZkYTc1MmI3ODcxNmQyMV9pYWNfcmVhZCIsIjY3ZTE0NzE1MDZkYTc1MmI3ODcxNmQyMV9rOHNfZXhlY3V0ZSIsIjY3ZTE0NzE1MDZkYTc1MmI3ODcxNmQyMV9UZWFtX1dyaXRlIiwiNjdlMTQ3MTUwNmRhNzUyYjc4NzE2ZDIxX3NlY3VyaXR5X2V4ZWN1dGUiLCI2N2UxNDcxNTA2ZGE3NTJiNzg3MTZkMjFfY2RfcmVhZCIsIm9mZmxpbmVfYWNjZXNzIiwiNjdlMTQ3MTUwNmRhNzUyYjc4NzE2ZDIxX1BvbGljaWVzX1dyaXRlIiwiNjdlMTQ3MTUwNmRhNzUyYjc4NzE2ZDIxX3NlY3VyaXR5X3dyaXRlIiwiNjdlMTQ3MTUwNmRhNzUyYjc4NzE2ZDIxX1Byb2plY3RfV3JpdGUiLCJtb2JpdXNfZDBmNTJiMGUtMzZkNy00ODUzLTg4NjAtNmQyMWE5YTkyMGE1X0FCQ0QiLCJkZWZhdWx0LXJvbGVzLW1hc3RlciIsIjY3ZTE0NzE1MDZkYTc1MmI3ODcxNmQyMV9DdXN0b21lcl9SZWFkIiwiNjdlMTQ3MTUwNmRhNzUyYjc4NzE2ZDIxX1RlYW1fUmVhZCIsIjY3ZTE0NzE1MDZkYTc1MmI3ODcxNmQyMV9icl9leGVjdXRlIiwiNjdlMTQ3MTUwNmRhNzUyYjc4NzE2ZDIxX2s4c19hZG1pbiIsIjY3ZTE0NzE1MDZkYTc1MmI3ODcxNmQyMV9Qcm9qZWN0X1JlYWQiLCI2N2UxNDcxNTA2ZGE3NTJiNzg3MTZkMjFfTG9nc19Xcml0ZSIsIjY3ZTE0NzE1MDZkYTc1MmI3ODcxNmQyMV9jZF93cml0ZSIsIjY3ZTE0NzE1MDZkYTc1MmI3ODcxNmQyMV9icl93cml0ZSIsIjY3ZTE0NzE1MDZkYTc1MmI3ODcxNmQyMV9zcmVfcmVhZCIsIjY3ZTE0NzE1MDZkYTc1MmI3ODcxNmQyMV9Vc2VyX1dyaXRlIiwiOWU3NjFiNzgtNjhiOC00MTY3LTgyM2EtaXAxX2YwYzFiODkzLWRjYTYtNGRkMS05MjI5LWlwMV90ZXN0X2N1c3RvbV9wcm9kdWN0X3JvbGUxMjM0NSIsIjY3ZTE0NzE1MDZkYTc1MmI3ODcxNmQyMV9pYWNfd3JpdGUiLCI2N2UxNDcxNTA2ZGE3NTJiNzg3MTZkMjFfY2lfYWRtaW4iLCI2N2UxNDcxNTA2ZGE3NTJiNzg3MTZkMjFfc2VjdXJpdHlfcmVhZCIsIjY3ZTE0NzE1MDZkYTc1MmI3ODcxNmQyMV9jaV9leGVjdXRlIiwiNjdlMTQ3MTUwNmRhNzUyYjc4NzE2ZDIxX0FwcHJvdmFsc19SZWFkIiwiNjdlMTQ3MTUwNmRhNzUyYjc4NzE2ZDIxX1VzZXJfUmVhZCJdfSwicmVzb3VyY2VfYWNjZXNzIjp7IkJPTFRaTUFOTl9CT1RfbW9iaXVzIjp7InJvbGVzIjpbIkJPTFRaTUFOTl9CT1RfVVNFUiIsIkJPTFRaTUFOTl9CT1RfQURNSU4iXX0sIkhPTEFDUkFDWV9tb2JpdXMiOnsicm9sZXMiOlsiSE9MQUNSQUNZX1VTRVIiXX0sIlBBU0NBTF9JTlRFTExJR0VOQ0VfbW9iaXVzIjp7InJvbGVzIjpbIlBBU0NBTF9JTlRFTExJR0VOQ0VfQ09OU1VNRVIiLCJQQVNDQUxfSU5URUxMSUdFTkNFX1VTRVIiLCJQQVNDQUxfSU5URUxMSUdFTkNFX0FETUlOIiwiU0NIRU1BX1JFQUQiXX0sIk1PTkVUX21vYml1cyI6eyJyb2xlcyI6WyJNT05FVF9BUFBST1ZFIiwiTU9ORVRfVVNFUiJdfSwiVklOQ0lfbW9iaXVzIjp7InJvbGVzIjpbIlZJTkNJX1VTRVIiXX0sImFjY291bnQiOnsicm9sZXMiOlsibWFuYWdlLWFjY291bnQiLCJtYW5hZ2UtYWNjb3VudC1saW5rcyIsInZpZXctcHJvZmlsZSJdfX0sInNjb3BlIjoicHJvZmlsZSBlbWFpbCIsInJlcXVlc3RlclR5cGUiOiJURU5BTlQiLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwibmFtZSI6IkFpZHRhYXMgQWlkdGFhcyIsInRlbmFudElkIjoiMmNmNzZlNWYtMjZhZC00ZjJjLWJjY2MtZjRiYzFlN2JmYjY0IiwicGxhdGZvcm1JZCI6Im1vYml1cyIsInByZWZlcnJlZF91c2VybmFtZSI6InBhc3N3b3JkX3RlbmFudF9haWR0YWFzQGdhaWFuc29sdXRpb25zLmNvbSIsImdpdmVuX25hbWUiOiJBaWR0YWFzIiwiZmFtaWx5X25hbWUiOiJBaWR0YWFzIiwiZW1haWwiOiJwYXNzd29yZFRlbmFudEFpZHRhYXNAZ2FpYW5zb2x1dGlvbnMuY29tIiwicGxhdGZvcm1zIjp7InJvbGVzIjpbIlNDSEVNQV9SRUFEIl19fQ.aU1Qq-zNiasF7cMvDKjxye4AJDauKYj-2bKNjTtSkIgTGlE4Tqxl69wNBrZBZix-6l8d9nnuvD85WMJIH9MyK6U5g_Q8HxCz2l8z3InWO-k6i_8Gp8U1AEVTxMlTYNjp_vL3WooNpLulLaE71Bp58GgO4IZzalCh7zmkTtaNzZGanQsAXObMrxisRp3VlSak5MX2KfRFNSLlFAEXLt_7NdNKjSZAZ5c-i5X2WJm0rijSz0_0pKJ9NR_mJ0vCPnRgOxZnfNsdXRz988FS_QC6ZzWthkE59WTC1W56PmDPACMV2HzrAK6Iq8lVWRp2UL1V_fFH6FJ2xFacTKDClkOXfw"
+        upload_url = "https://ig.mobiusdtaas.ai/mobius-content-service/v1.0/content/upload?filePathAccess=private&filePath=%2Fbottle%2Flimka%2Fsoda%2F"
+
+        def upload_file_to_cdn(file_path, output_cdn_url_path, filename_prefix):
+            """
+            Uploads a file to a CDN using curl and outputs the public URL.
+            """
+            unique_filename = f"{filename_prefix}_{uuid.uuid4()}{os.path.splitext(file_path)[1]}"
+            
+            print(f"Uploading file from {file_path} with unique name {unique_filename} to {upload_url}...")
+
+            curl_command = [
+                "curl",
+                "--location", upload_url,
+                "--header", f"Authorization: Bearer {bearer_token}",
+                "--form", f'file=@"{file_path}";filename="{unique_filename}"',
+                "--fail",
+                "--show-error"
+            ]
+
+            try:
+                process = subprocess.run(
+                    curl_command,
+                    capture_output=True,
+                    text=True,
+                    check=True
+                )
+                
+                print("Upload successful. Raw response:")
+                print(process.stdout)
+
+                response_json = json.loads(process.stdout)
+                
+                relative_cdn_url = response_json.get("cdnUrl", "URL_NOT_FOUND")
+
+                if relative_cdn_url == "URL_NOT_FOUND":
+                    print("Error: Could not find 'cdnUrl' in the server response.")
+                    print("Full response:", process.stdout)
+                    raise ValueError("Failed to parse cdnUrl from CDN response.")
+                
+                content_url_value = f"https://cdn.mobiusdtaas.ai{relative_cdn_url}"
+
+                print(f"Extracted CDN URL: {content_url_value}")
+
+                # Only create the directory if the path includes one.
+                output_dir = os.path.dirname(output_cdn_url_path)
+                if output_dir:
+                    os.makedirs(output_dir, exist_ok=True)
+                
+                with open(output_cdn_url_path, "w") as f:
+                    f.write(content_url_value)
+                
+                return content_url_value
+
+            except subprocess.CalledProcessError as e:
+                print("Error executing curl command:")
+                print(f"Return code: {e.returncode}")
+                print(f"Output: {e.stdout}")
+                print(f"Error Output: {e.stderr}")
+                raise e
+            except (json.JSONDecodeError, KeyError, ValueError) as e:
+                print(f"Error processing the server response: {e}")
+                raise e
+
+        # Upload pickle file
+        pickle_url = upload_file_to_cdn(args.processed_data_pickle, args.pickle_cdn_url, "processed_data")
+
+        # Write config string to a temporary file and upload it
+        config_temp_file = f"/tmp/config_{uuid.uuid4()}.json"
+        with open(config_temp_file, 'w') as f:
+            f.write(args.config_string)
+        
+        config_url = upload_file_to_cdn(config_temp_file, args.config_cdn_url, "config")
+        os.remove(config_temp_file) # Clean up temporary file
+
+        print(f"Final Pickle CDN URL: {pickle_url}")
+        print(f"Final Config CDN URL: {config_url}")
+    args:
+      - --processed_data_pickle
+      - {inputPath: processed_data_pickle}
+      - --config_string
+      - {inputValue: config_string}
+      - --pickle_cdn_url
+      - {outputPath: pickle_cdn_url}
+      - --config_cdn_url
+      - {outputPath: config_cdn_url}
+    args:
+      - --processed_data_pickle
+      - {inputPath: processed_data_pickle}
+      - --config_string
+      - {inputValue: config_string}
+      - --pickle_cdn_url
+      - {outputPath: pickle_cdn_url}
+      - --config_cdn_url
+      - {outputPath: config_cdn_url}
