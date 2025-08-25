@@ -1,0 +1,103 @@
+name: Nesy GNN Evaluate Model
+description: Evaluates the trained model and generates performance metrics.
+inputs:
+  - {name: trained_model, type: Model}     # Trained model from train brick
+  - {name: data_path, type: Dataset}
+  - {name: config, type: String}           # Model configuration 
+outputs:
+  - {name: metrics, type: Metrics}         # Evaluation metrics and reports
+implementation:
+  container:
+    image: nikhilv215/nesy-factory:v2
+    command:
+      - sh
+      - -c
+      - |
+        exec "$0" "$@"
+      - python3
+      - -u
+      - -c
+      - |
+        import torch
+        import argparse
+        import pickle
+        import json
+        import os
+        from sklearn.metrics import classification_report
+        from nesy_factory.GNNs import create_model
+        from nesy_factory.utils import get_config_by_name, set_random_seed
+        
+        # Parse arguments
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--trained_model', type=str, required=True)
+        parser.add_argument('--data_path', type=str, required=True)
+        parser.add_argument('--config', type=str, required=True)
+        parser.add_argument('--metrics', type=str, required=True)
+        args = parser.parse_args()
+
+        print(f"Trained model path: {args.trained_model}")
+        print(f"Data path: {args.data_path}")
+        print(f"Output path: {args.metrics}")
+        
+        print("Loading config...")
+        print(f"config file is {args.config}")
+        try: 
+            config = json.loads(args.config)
+        except : 
+            with open(args.config) as f:
+                config = json.load(f)
+        print(f"the configs are : {config}")
+
+        # Load inputs
+        print("Loading trained model...")
+        # model = torch.load(args.trained_model)
+        model_name = config.get('model_name', 'tgcn')
+        model = create_model(model_name, config)
+        model.load_state_dict(torch.load(args.trained_model, map_location=torch.device('cpu')))
+        
+        #load data
+        try:
+            with open(args.data_path, "rb") as f:
+                data = pickle.load(f)
+            print(f"Successfully loaded data. Type: {type(data)}")
+            if hasattr(data, 'x'):
+                print(f"Data shape: {data.x.shape}")
+        except Exception as e:
+            print(f"Error loading data: {e}")
+            exit(1)
+            
+
+        
+        # Model Evaluation 
+        print("Starting Model Evaluation")
+        eval_metrics = model.eval_step(data, data.test_mask)
+        print(f"Test Accuracy: {eval_metrics['accuracy']:.4f}")
+        
+      
+        
+        # Prepare metrics output
+        metrics_output = {
+            'test_accuracy': eval_metrics['accuracy']
+        }
+        
+        # Ensure output directory exists
+        os.makedirs(os.path.dirname(args.metrics), exist_ok=True)
+        
+        # Save metrics
+        print("Saving evaluation metrics...")
+        try:
+            with open(args.metrics, 'w') as f:
+                json.dump(metrics_output, f, indent=2)
+            print(f"Saved metrics to {args.metrics}")
+        except Exception as e:
+            print(f"Error saving metrics: {e}")
+            exit(1)
+    args:
+      - --trained_model
+      - {inputPath: trained_model}
+      - --data_path
+      - {inputPath: data_path}
+      - --config
+      - {inputValue: config}
+      - --metrics
+      - {outputPath: metrics}

@@ -1,0 +1,111 @@
+name: Load PetShop dataset
+description: Clones the PetShop repository, processes the dataset, and outputs train, test, and anomaly (label) files as pickled datasets.
+outputs:
+  - {name: train_data, type: Dataset}
+  - {name: test_data, type: Dataset}
+  - {name: anomaly_data, type: Dataset}
+implementation:
+  container:
+    image: python:3.9
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        apt-get update && apt-get install -y git
+        pip install pandas scikit-learn numpy
+        
+        WORKDIR="petshop_temp"
+        REPO_URL="https://github.com/amazon-science/petshop-root-cause-analysis.git"
+        
+        mkdir -p $WORKDIR
+        cd $WORKDIR
+        
+        git clone $REPO_URL
+        cd petshop-root-cause-analysis
+        
+        mkdir -p /generate_data
+        cp dataset/temporal_traffic1/noissue/metrics.csv /generate_data/metrics.csv
+        
+        cd /
+        rm -rf $WORKDIR
+        
+        exec "$0" "$@"
+      - python3
+      - -u
+      - -c
+      - |
+        import argparse
+        import os
+        import pickle
+        import pandas as pd
+        import numpy as np
+        from sklearn.model_selection import train_test_split
+
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--train_data', type=str, required=True)
+        parser.add_argument('--test_data', type=str, required=True)
+        parser.add_argument('--anomaly_data', type=str, required=True)
+        args = parser.parse_args()
+
+        # Use the copied CSV from a stable path created during the shell step
+        file_path = "/generate_data/metrics.csv"
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"Dataset not found at {file_path}")
+
+        # Load CSV
+        df = pd.read_csv(file_path)
+
+        # Drop rows at indices 2, 3, and 4
+        df_modified = df.drop(index=[2, 3, 4])
+
+        # Select only AWSSimpleSystemsManagement_AWS* columns
+        same_name = "AWSSimpleSystemsManagement_AWS"
+        mask = df_modified.columns.str.startswith(same_name)
+        if not mask.any():
+            raise ValueError(f"'{same_name}' not found in dataset columns")
+
+        df_selected = df_modified.loc[:, mask]
+
+        # Clean headers: row 0 and row 1 contain metadata
+        row0 = df_selected.iloc[0]
+        row1 = df_selected.iloc[1]
+        new_columns = [
+            f"{str(row0[col])+str(row1[col])}" if pd.notna(row0[col]) else col
+            for col in df_selected.columns
+        ]
+        df_selected.columns = new_columns
+
+        # Drop first two rows
+        df_cleaned = df_selected.drop(index=[0, 1]).reset_index(drop=True)
+
+        # Train-test split
+        train_df, test_df = train_test_split(
+            df_cleaned, test_size=0.2, random_state=42, shuffle=True
+        )
+
+        # Save train.pkl
+        os.makedirs(os.path.dirname(args.train_data), exist_ok=True)
+        with open(args.train_data, "wb") as f:
+            pickle.dump(train_df, f)
+
+        # Save test.pkl
+        os.makedirs(os.path.dirname(args.test_data), exist_ok=True)
+        with open(args.test_data, "wb") as f:
+            pickle.dump(test_df, f)
+
+        # Create zero anomaly labels for test
+        test_label = np.zeros(len(test_df), dtype=np.float32)
+        os.makedirs(os.path.dirname(args.anomaly_data), exist_ok=True)
+        with open(args.anomaly_data, "wb") as f:
+            pickle.dump(test_label, f)
+
+        print("Successfully processed and saved PetShop dataset.")
+
+    args:
+      - --train_data
+      - {outputPath: train_data}
+      - --test_data
+      - {outputPath: test_data}
+      - --anomaly_data
+      - {outputPath: anomaly_data}

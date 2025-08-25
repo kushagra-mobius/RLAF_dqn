@@ -1,4 +1,4 @@
-name: Load SMD data
+name: Load SMD dataset
 description: Clones a repository, processes data, and outputs train, test, and anomaly files as pickled datasets.
 outputs:
   - {name: train_data, type: Dataset}

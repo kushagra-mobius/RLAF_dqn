@@ -1,0 +1,324 @@
+name: Piercing
+description: Triggers the RLAF pipeline once with initial metrics and returns the output.
+inputs:
+  - {name: trained_model, type: Model}
+  - {name: init_metrics, type: Metrics}
+  - {name: data_path, type: Dataset}
+  - {name: config, type: String}
+
+outputs:
+  - {name: rlaf_output, type: Dataset}
+implementation:
+  container:
+    image: nikhilv215/nesy-factory:v3
+    command:
+      - sh
+      - -c
+      - |
+        exec "$0" "$@"
+      - python3
+      - -u
+      - -c
+      - |
+        import torch
+        import os
+        import json
+        import argparse
+        import requests
+        import time
+        import pickle
+        from sklearn.metrics import classification_report # New import
+        from nesy_factory.GNNs import create_model
+
+        def get_access_token():
+            url = "https://ig.mobiusdtaas.ai/mobius-iam-service/v1.0/login"
+            payload = json.dumps({
+                "userName": "aidtaas@gaiansolutions.com",
+                "password": "Gaian@123",
+                "productId": "c2255be4-ddf6-449e-a1e0-b4f7f9a2b636",
+                "requestType": "TENANT"
+            })
+            headers = {'Content-Type': 'application/json'}
+            response = requests.post(url, headers=headers, data=payload)
+            response.raise_for_status()
+            access_token = response.json()['accessToken']
+            return access_token
+
+        def trigger_pipeline(config):
+            url = f"https://ig.mobiusdtaas.ai/bob-service-test/v1.0/pipeline/trigger/ml?pipelineId={config['pipeline_id']}"
+            payload = json.dumps({
+                "pipelineType": "ML",
+                "containerResources": {},
+                "experimentId": config['experiment_id'],
+                "enableCaching": True,
+                "parameters": {},
+                "version": 1
+            })
+            headers = {
+                'accept': 'application/json',
+                'Authorization': f"Bearer {config['access_token']}",
+                'Content-Type': 'application/json'
+            }
+            response = requests.post(url, headers=headers, data=payload)
+            response.raise_for_status()
+            print(response.json())
+            return response.json()['runId']
+
+        def get_pipeline_status(config):
+            access_token = config['access_token']
+            pipeline_id = config['pipeline_id']
+            run_id = config['run_id']
+            url = f"https://ig.mobiusdtaas.ai/bob-service-test/v1.0/pipeline/{pipeline_id}/status/ml/{run_id}"
+            headers = {
+                'accept': 'application/json',
+                'Authorization': f'Bearer {access_token}'
+            }
+            response = requests.get(url, headers=headers)
+            response.raise_for_status()
+            pipeline_status = response.json()
+            latest_state = pipeline_status['run_details']['state_history'][-1]
+            return latest_state['state']
+
+        def get_instances(access_token):
+            url = "https://ig.mobiusdtaas.ai/pi-entity-instances-service/v3.0/schemas/68a44cd2eed84d47877a3f5e/instances/list"
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json"
+            }
+            payload = {"dbType": "TIDB", "ownedOnly": True, "filter": {"id": "1"}}
+            response = requests.post(url, headers=headers, json=payload)
+            response.raise_for_status()
+            return response.json()
+
+        def update_instance(access_token, instance_id, field_to_update, new_value):
+            url = "https://ig.mobiusdtaas.ai/pi-entity-instances-service/v2.0/schemas/68a44cd2eed84d47877a3f5e/instances"
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "dbType": "TIDB",
+                "conditionalFilter": {"conditions": [{"field": "id", "operator": "EQUAL", "value": instance_id}]},
+                "partialUpdateRequests": [{"patch": [{"operation": "REPLACE", "path": field_to_update, "value": new_value}]}]
+            }
+            response = requests.patch(url, headers=headers, json=payload)
+            response.raise_for_status()
+            return response.json()
+
+        def append_to_pierce2rlaf(access_token, new_entry):
+            current_data = get_instances(access_token)
+            instance = current_data["content"][0]
+            if "pierce2rlaf" not in instance:
+                instance["pierce2rlaf"] = []
+            instance["pierce2rlaf"].append(new_entry)
+            update_instance(access_token, instance["id"], "pierce2rlaf", instance["pierce2rlaf"])
+            print("Appended to pierce2rlaf successfully.")
+
+        def get_pierce_params():
+            token = get_access_token()
+            rlaf_to_pierce_data = get_instances(token)
+            print(json.dumps(rlaf_to_pierce_data["content"], indent=4))
+            pierce_data = rlaf_to_pierce_data['content'][-1]["rlaf2pierce"][-1]
+            print(pierce_data)
+            pierce_parameters = pierce_data['actions'][-1]
+            pierce_params = {
+                "epochs": pierce_parameters.get('epochs', 5),
+                "optimiser_params": {
+                    "learning_rate": pierce_parameters.get('lr', 0.03)
+                },
+                "pierce_model": pierce_data.get("pierce_or_not", "false")
+            }
+            print(f"The Piercing parameters from RLAF are {pierce_params}")
+            return pierce_params
+
+        def trigger_RLAF(config):
+            run_id = trigger_pipeline(config)
+            config["run_id"] = run_id
+            while True:
+                pipeline_status = get_pipeline_status(config)
+                print(f"Current pipeline status: {pipeline_status}")
+                if pipeline_status == 'SUCCEEDED':
+                    print("RLAF Pipeline execution completed")
+                    break
+                elif pipeline_status in ['FAILED', 'ERROR']:
+                    print(f"Pipeline execution failed with status: {pipeline_status}")
+                    raise RuntimeError(f"Pipeline failed with status {pipeline_status}")
+                else:
+                    time.sleep(60)
+
+        def run_rlaf_once(init_metrics):
+            accuracy = init_metrics.get("accuracy", 0.0)
+            prev_accuracy = init_metrics.get("prev_accuracy", 0.0)
+            epochs = init_metrics.get("epochs", 0)
+            lr = init_metrics.get("lr", 0)
+            
+            new_pierce2rlaf_entry = {
+                "actions": [{"accuracy": accuracy, "prev_accuracy": prev_accuracy, "epochs": epochs, "lr": lr}],
+                "timestamp": str(int(time.time())),
+                "trained_accuracy": 0.1
+            }
+
+            access_token = get_access_token()
+            append_to_pierce2rlaf(access_token, new_pierce2rlaf_entry)
+            
+            config = {
+                "pipeline_id": "0198c6d0-bd36-70a8-a3d2-a1796601d631",
+                "experiment_id": "a419f72e-dbf6-42d7-86fe-f694eb09a9dc",
+                "access_token": access_token
+            }
+            
+            trigger_RLAF(config)
+            pierce_params = get_pierce_params()
+            return pierce_params
+
+        def model_retraining(params, model_path, data_path, config_path, prev_metrics):
+            print(f"Starting model retraining with parameters: {params}")
+
+            # Load data
+            try:
+                with open(data_path, "rb") as f:
+                    data = pickle.load(f)
+                print(f"Successfully loaded data from {data_path}")
+            except Exception as e:
+                print(f"Error loading data: {e}")
+                return
+
+            # Load config
+            try:
+                with open(config_path, 'r') as f: # Changed to read from file path
+                    config = json.load(f)
+                print(f"Successfully loaded config from {config_path}")
+            except FileNotFoundError:
+                print(f"Config file not found at {config_path}")
+                return
+            except json.JSONDecodeError as e:
+                print(f"Error decoding config JSON from {config_path}: {e}")
+                return
+            except Exception as e:
+                print(f"An unexpected error occurred loading config from {config_path}: {e}")
+                return
+
+            # Update config with RLAF params
+            config["epochs"] = params.get("epochs", config.get("epochs"))
+            config["learning_rate"] = params["optimiser_params"]["learning_rate"]
+            print(f"Updated training config: {config}")
+
+            # Load model
+            model_name = config.get('model_name', 'tgcn')
+            model = create_model(model_name, config)
+            model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
+            print(f"Successfully loaded model from {model_path}")
+
+            # Train model
+            epochs = config.get('epochs', 100)
+            print(f"Training for {epochs} epochs...")
+            for epoch in range(epochs):
+                loss = model.train_step(data, data.train_mask)
+                if epoch % 10 == 0:
+                    print(f"Epoch {epoch:03d} | Loss: {loss:.4f}")
+            print("Finished model training.")
+
+            # Save trained model
+            print(f"Saving retrained model to {model_path}...")
+            torch.save(model.state_dict(), model_path)
+            print("Retrained model saved.")
+
+            # Evaluate model
+            print("Evaluating retrained model...")
+            # Assuming model has an evaluate_step method that returns a dict with 'test_accuracy' and 'classification_report'
+            # If not, this part needs to be implemented based on the actual model's evaluation capabilities.
+            # For now, I'll use a placeholder for evaluation results.
+            # In a real scenario, you would run model.evaluate_step(data, data.test_mask)
+            # and extract the accuracy from the results.
+            
+            # Placeholder for actual evaluation
+            # You would replace this with actual model evaluation logic
+            # For example:
+            # eval_results = model.evaluate_step(data, data.test_mask)
+            # current_accuracy = eval_results.get("test_accuracy", 0.0)
+            # classification_report = eval_results.get("classification_report", {})
+
+            # For demonstration, using the provided example structure
+            # In a real scenario, these values would come from the model's evaluation
+            current_accuracy = 0.9350329934013197 # Example value from user's prompt
+            
+            # Evaluate model
+            print("Evaluating retrained model...")
+            eval_metrics = model.eval_step(data, data.test_mask)
+            current_accuracy = eval_metrics['accuracy']
+            print(f"Test Accuracy: {current_accuracy:.4f}")
+
+            # Detailed Report
+            model.eval()
+            with torch.no_grad():
+                out = model.predict(data)
+                pred = out.argmax(dim=1)
+                
+                test_pred = pred[data.test_mask].cpu().numpy()
+                test_true = data.y[data.test_mask].cpu().numpy()
+                
+                known_mask = test_true != 2
+                test_pred_known = test_pred[known_mask]
+                test_true_known = test_true[known_mask]
+                
+                report = classification_report(test_true_known, test_pred_known,
+                                             target_names=['Licit', 'Illicit'],
+                                             labels=[0, 1], digits=4, output_dict=True)
+            
+            # Create new metrics for the next RLAF run
+            new_metrics = {
+                "accuracy": current_accuracy,
+                "prev_accuracy": prev_metrics.get("accuracy", 0.0), # Get previous accuracy from prev_metrics
+                "epochs": params["epochs"],
+                "lr": params["optimiser_params"]["learning_rate"],
+                "classification_report": report # Add classification report
+            }
+            print(f"New metrics for next RLAF run: {new_metrics}")
+            return new_metrics
+
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--trained_model', type=str, required=True)
+        parser.add_argument('--init_metrics', type=str, required=True)
+        parser.add_argument('--rlaf_output', type=str, required=True)
+        parser.add_argument('--data_path', type=str, required=True)
+        parser.add_argument('--config', type=str, required=True)
+        args = parser.parse_args()
+
+        print(f"Trained model path: {args.trained_model}")
+        print(f"Initial metrics path: {args.init_metrics}")
+
+        with open(args.init_metrics, 'r') as f:
+            initial_metrics_data = json.load(f)
+        
+        current_metrics = {
+            "accuracy": initial_metrics_data.get("test_accuracy", 0.0),
+            "prev_accuracy": 0.0, # Initial prev_accuracy is 0
+            "epochs": initial_metrics_data.get("epochs", 0), # Assuming epochs might be in initial metrics
+            "lr": initial_metrics_data.get("lr", 0) # Assuming lr might be in initial metrics
+        }
+
+        while True:
+            rlaf_params = run_rlaf_once(current_metrics)
+            print(f"RLAF output params: {rlaf_params}")
+
+            if rlaf_params.get("pierce_model"):
+                print("pierce_or_not is true, retraining model and looping.")
+                current_metrics = model_retraining(rlaf_params, args.trained_model, args.data_path, args.config, current_metrics)
+            else:
+                print("pierce_or_not is false, exiting loop.")
+                break
+        
+        os.makedirs(os.path.dirname(args.rlaf_output), exist_ok=True)
+        with open(args.rlaf_output, 'w') as f:
+            json.dump(rlaf_params, f, indent=4)
+    args:
+      - --trained_model
+      - {inputPath: trained_model}
+      - --init_metrics
+      - {inputPath: init_metrics}
+      - --rlaf_output
+      - {outputPath: rlaf_output}
+      - --data_path
+      - {inputPath: data_path}
+      - --config
+      - {inputPath: config}
