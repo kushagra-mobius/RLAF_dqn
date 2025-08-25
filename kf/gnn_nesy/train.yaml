@@ -23,6 +23,7 @@ implementation:
         import pickle
         import os
         import json
+        import numpy as np
         from nesy_factory.GNNs import create_model
         from nesy_factory.utils import get_config_by_name, set_random_seed
         from sklearn.metrics import classification_report
