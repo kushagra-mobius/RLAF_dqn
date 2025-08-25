@@ -8,7 +8,7 @@ outputs:
   - {name: trained_model, type: Model}     # Trained model object
 implementation:
   container:
-    image: nikhilv215/nesy-factory:v3
+    image: nikhilv215/nesy-factory:v5
     command:
       - sh
       - -c
