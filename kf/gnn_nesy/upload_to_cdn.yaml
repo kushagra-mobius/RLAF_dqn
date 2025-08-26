@@ -44,15 +44,6 @@ implementation:
         upload_url = "https://ig.mobiusdtaas.ai/mobius-content-service/v1.0/content/upload?filePathAccess=private&filePath=%2Fbottle%2Flimka%2Fsoda%2F"
 
         def upload_file_to_cdn(file_path, output_cdn_url_path, filename_prefix):
-            # Read the pickle file content
-            try:
-                with open(file_path, "rb") as f:
-                    file_content = f.read()
-                print(f"Successfully read file content from {file_path}.")
-            except Exception as e:
-                print(f"Error reading file {file_path}: {e}")
-                raise e
-
             # The filename for the CDN will be derived from the original file path
             original_filename = os.path.basename(file_path)
             cdn_filename = f"{filename_prefix}_{original_filename}"
@@ -63,7 +54,7 @@ implementation:
                 "curl",
                 "--location", upload_url,
                 "--header", f"Authorization: Bearer {bearer_token}",
-                "--form", "file=@-", # Pass content from stdin
+                "--form", f"file=@{file_path}", # Pass file path directly
                 "--fail",
                 "--show-error"
             ]
@@ -72,7 +63,6 @@ implementation:
             try:
                 process = subprocess.run(
                     curl_command,
-                    input=file_content, # Pass binary content as input
                     capture_output=True,
                     check=True # Keep check=True to raise CalledProcessError
                 )
@@ -113,8 +103,22 @@ implementation:
                 print(f"Error processing the server response: {e}")
                 raise e
 
-        # Upload pickle file
-        pickle_url = upload_file_to_cdn(args.processed_data_pickle, args.pickle_cdn_url, "processed_data")
+        # Load pickle file content
+        try:
+            with open(args.processed_data_pickle, "rb") as f:
+                pickle_content = f.read()
+            print(f"Successfully read pickle content from {args.processed_data_pickle}.")
+        except Exception as e:
+            print(f"Error reading pickle file {args.processed_data_pickle}: {e}")
+            raise e
+
+        # Write pickle content to a temporary file and upload it
+        pickle_temp_file = f"/tmp/processed_data_{uuid.uuid4()}.pkl"
+        with open(pickle_temp_file, 'wb') as f:
+            f.write(pickle_content)
+        
+        pickle_url = upload_file_to_cdn(pickle_temp_file, args.pickle_cdn_url, "processed_data")
+        os.remove(pickle_temp_file) # Clean up temporary file
 
         # Write config string to a temporary file and upload it
         config_temp_file = f"/tmp/config_{uuid.uuid4()}.json"
