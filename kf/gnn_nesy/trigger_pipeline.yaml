@@ -1,0 +1,108 @@
+name: Trigger Pipeline
+description: Triggers an Elyra Kubeflow pipeline using a curl request.
+inputs:
+  - {name: pickle_cdn_url, type: String, description: "URL to the uploaded pickle file"}
+  - {name: config_cdn_url, type: String, description: "URL to the uploaded config string"}
+  - {name: access_token, type: String, description: "Bearer token for pipeline trigger authentication"}
+  - {name: domain, type: String, description: "Domain for the pipeline trigger API (e.g., https://ig.mobiusdtaas.ai)"}
+  - {name: pipeline_id, type: String, description: "ID of the Elyra Kubeflow pipeline to trigger"}
+  - {name: experiment_id, type: String, description: "ID of the Kubeflow experiment"}
+implementation:
+  container:
+    image: python:3.8-slim
+    command:
+      - sh
+      - -ec
+      - |
+        if ! command -v curl &> /dev/null; then
+            echo "curl could not be found, installing..."
+            apt-get update > /dev/null && apt-get install -y curl > /dev/null
+        fi
+        exec "$0" "$@"
+      - python3
+      - -u
+      - -c
+      - |
+        import argparse
+        import subprocess
+        import json
+        import os
+
+        parser = argparse.ArgumentParser(description="Trigger an Elyra Kubeflow pipeline.")
+        parser.add_argument('--pickle_cdn_url', type=str, required=True, help='URL to the uploaded pickle file.')
+        parser.add_argument('--config_cdn_url', type=str, required=True, help='URL to the uploaded config string.')
+        parser.add_argument('--access_token', type=str, required=True, help='Bearer token for pipeline trigger authentication.')
+        parser.add_argument('--domain', type=str, required=True, help='Domain for the pipeline trigger API.')
+        parser.add_argument('--pipeline_id', type=str, required=True, help='ID of the Elyra Kubeflow pipeline to trigger.')
+        parser.add_argument('--experiment_id', type=str, required=True, help='ID of the Kubeflow experiment.')
+        args = parser.parse_args()
+
+        trigger_url = f"{args.domain}/bob-service-test/v1.0/pipeline/trigger/ml?pipelineId={args.pipeline_id}"
+
+        headers = {
+            "accept": "application/json",
+            "Authorization": f"Bearer {args.access_token}",
+            "Content-Type": "application/json"
+        }
+
+        payload = {
+            "pipelineType": "ML",
+            "containerResources": {},
+            "experimentId": args.experiment_id,
+            "enableCaching": True,
+            "parameters": {
+                "model_name" : "gcn",
+                "model_config" : "{\"input_dim\": 165, \"hidden_dim\": 32, \"output_dim\": 3, \"num_layers\": 2, \"dropout\": 0.3, \"optimizer\": \"adam\", \"learning_rate\": 0.01, \"normalize\": true, \"add_self_loops\": true, \"epochs\": 80}",
+                "dataset_cdn_url": args.pickle_cdn_url,
+                "weigts_cdn_url": args.config_cdn_url
+            },
+            "version": 1
+        }
+
+        print(f"Triggering pipeline at: {trigger_url}")
+        print(f"Payload: {json.dumps(payload, indent=2)}")
+
+        curl_command = [
+            "curl",
+            "--location", trigger_url,
+            "--header", f"accept: {headers['accept']}",
+            "--header", f"Authorization: {headers['Authorization']}",
+            "--header", f"Content-Type: {headers['Content-Type']}",
+            "--data", json.dumps(payload),
+            "--fail",
+            "--show-error",
+            "--retry", "5",
+            "--retry-delay", "10",
+            "--max-time", "300"
+        ]
+
+        try:
+            process = subprocess.run(
+                curl_command,
+                capture_output=True,
+                check=True
+            )
+            print("Pipeline trigger successful. Raw response:")
+            print(process.stdout.decode('utf-8'))
+        except subprocess.CalledProcessError as e:
+            print("Error executing curl command to trigger pipeline:")
+            print(f"Return code: {e.returncode}")
+            print(f"Output: {e.stdout.decode('utf-8')}")
+            print(f"Error Output: {e.stderr.decode('utf-8')}")
+            raise e
+        except Exception as e:
+            print(f"An unexpected error occurred: {e}")
+            raise e
+    args:
+      - --pickle_cdn_url
+      - {inputValue: pickle_cdn_url}
+      - --config_cdn_url
+      - {inputValue: config_cdn_url}
+      - --access_token
+      - {inputValue: access_token}
+      - --domain
+      - {inputValue: domain}
+      - --pipeline_id
+      - {inputValue: pipeline_id}
+      - --experiment_id
+      - {inputValue: experiment_id}
