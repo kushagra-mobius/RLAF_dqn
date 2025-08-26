@@ -13,7 +13,6 @@ implementation:
       - sh
       - -c
       - |
-        pip install pandas
         exec "$0" "$@"
       - python3
       - -u
@@ -24,7 +23,7 @@ implementation:
         import pickle
         import os
         import json
-        import pandas as pd
+        # import pandas as pd
         import numpy as np
         from nesy_factory.GNNs import create_model
         from nesy_factory.utils import get_config_by_name, set_random_seed
