@@ -3,7 +3,7 @@ description: Uploads a file to a CDN using curl and outputs the public URL.
 inputs:
   - {name: processed_data_pickle, type: Dataset, description: "Pickled DataWrapper object"}
   - {name: config_string, type: String, description: "Configuration string (e.g., JSON)"}
-  - {name: bearer_token, type: String, description: "Bearer token for CDN authentication"}
+  - {name: bearer_token, type: string, description: "Bearer token for CDN authentication"}
 outputs:
   - {name: pickle_cdn_url, type: String, description: "URL to the uploaded pickle file"}
   - {name: config_cdn_url, type: String, description: "URL to the uploaded config string"}
