@@ -38,7 +38,8 @@ implementation:
         parser.add_argument('--bearer_token', type=str, required=True, help='Bearer token for CDN authentication.')
         args = parser.parse_args()
 
-        bearer_token = args.bearer_token
+        with open(args.bearer_token, 'r') as f:
+            bearer_token = f.read().strip()
         upload_url = "https://ig.mobiusdtaas.ai/mobius-content-service/v1.0/content/upload?filePathAccess=private&filePath=%2Fbottle%2Flimka%2Fsoda%2F"
 
         def upload_file_to_cdn(file_path, output_cdn_url_path, filename_prefix):
@@ -118,7 +119,7 @@ implementation:
       - --config_string
       - {inputValue: config_string}
       - --bearer_token
-      - {inputValue: bearer_token}
+      - {inputPath: bearer_token}
       - --pickle_cdn_url
       - {outputPath: pickle_cdn_url}
       - --config_cdn_url
