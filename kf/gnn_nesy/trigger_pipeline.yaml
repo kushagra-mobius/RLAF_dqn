@@ -3,7 +3,7 @@ description: Triggers an Elyra Kubeflow pipeline using a curl request.
 inputs:
   - {name: pickle_cdn_url, type: String, description: "URL to the uploaded pickle file"}
   - {name: config_cdn_url, type: String, description: "URL to the uploaded config string"}
-  - {name: access_token, type: String, description: "Bearer token for pipeline trigger authentication"}
+  - {name: access_token, type: string, description: "Bearer token for pipeline trigger authentication"}
   - {name: domain, type: String, description: "Domain for the pipeline trigger API (e.g., https://ig.mobiusdtaas.ai)"}
   - {name: pipeline_id, type: String, description: "ID of the Elyra Kubeflow pipeline to trigger"}
   - {name: experiment_id, type: String, description: "ID of the Kubeflow experiment"}
@@ -40,10 +40,11 @@ implementation:
         args = parser.parse_args()
 
         trigger_url = f"{args.domain}/bob-service-test/v1.0/pipeline/trigger/ml?pipelineId={args.pipeline_id}"
-
+        with open(args.access_token, 'r') as f:
+            access_token = f.read().strip()
         headers = {
             "accept": "application/json",
-            "Authorization": f"Bearer {args.access_token}",
+            "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/json"
         }
 
@@ -101,7 +102,7 @@ implementation:
       - --config_cdn_url
       - {inputValue: config_cdn_url}
       - --access_token
-      - {inputValue: access_token}
+      - {inputPath: access_token}
       - --domain
       - {inputValue: domain}
       - --pipeline_id
