@@ -29,6 +29,7 @@ implementation:
         import json
         import os
         import uuid
+        import pickle # Added for pickle loading
 
         parser = argparse.ArgumentParser(description="Upload files to a CDN.")
         parser.add_argument('--processed_data_pickle', type=str, required=True, help='Path to the processed data pickle file.')
@@ -43,37 +44,49 @@ implementation:
         upload_url = "https://ig.mobiusdtaas.ai/mobius-content-service/v1.0/content/upload?filePathAccess=private&filePath=%2Fbottle%2Flimka%2Fsoda%2F"
 
         def upload_file_to_cdn(file_path, output_cdn_url_path, filename_prefix):
-            unique_filename = f"{filename_prefix}_{uuid.uuid4()}{os.path.splitext(file_path)[1]}"
+            # Read the pickle file content
+            try:
+                with open(file_path, "rb") as f:
+                    file_content = f.read()
+                print(f"Successfully read file content from {file_path}.")
+            except Exception as e:
+                print(f"Error reading file {file_path}: {e}")
+                raise e
+
+            # The filename for the CDN will be derived from the original file path
+            original_filename = os.path.basename(file_path)
+            cdn_filename = f"{filename_prefix}_{original_filename}"
             
-            print(f"Uploading file from {file_path} with unique name {unique_filename} to {upload_url}...")
+            print(f"Uploading file from {file_path} with CDN name {cdn_filename} to {upload_url}...")
 
             curl_command = [
                 "curl",
                 "--location", upload_url,
                 "--header", f"Authorization: Bearer {bearer_token}",
-                "--form", f'file=@"{file_path}";filename="{unique_filename}"',
+                "--form", "file=@-", # Pass content from stdin
                 "--fail",
                 "--show-error"
             ]
+            print(f"Executing curl command: {' '.join(curl_command)}")
 
             try:
                 process = subprocess.run(
                     curl_command,
+                    input=file_content, # Pass binary content as input
                     capture_output=True,
-                    text=True,
-                    check=True
+                    check=True # Keep check=True to raise CalledProcessError
                 )
                 
                 print("Upload successful. Raw response:")
-                print(process.stdout)
+                print(process.stdout.decode('utf-8')) # Decode stdout for printing
 
-                response_json = json.loads(process.stdout)
+                response_json = json.loads(process.stdout.decode('utf-8'))
                 
                 relative_cdn_url = response_json.get("cdnUrl", "URL_NOT_FOUND")
 
                 if relative_cdn_url == "URL_NOT_FOUND":
                     print("Error: Could not find 'cdnUrl' in the server response.")
-                    print("Full response:", process.stdout)
+                    print("Full response:", process.stdout.decode('utf-8'))
                     raise ValueError("Failed to parse cdnUrl from CDN response.")
                 
                 content_url_value = f"https://cdn.mobiusdtaas.ai{relative_cdn_url}"
@@ -93,8 +106,8 @@ implementation:
             except subprocess.CalledProcessError as e:
                 print("Error executing curl command:")
                 print(f"Return code: {e.returncode}")
-                print(f"Output: {e.stdout}")
-                print(f"Error Output: {e.stderr}")
+                print(f"Output: {e.stdout.decode('utf-8')}")
+                print(f"Error Output: {e.stderr.decode('utf-8')}")
                 raise e
             except (json.JSONDecodeError, KeyError, ValueError) as e:
                 print(f"Error processing the server response: {e}")
