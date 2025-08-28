@@ -8,6 +8,7 @@ inputs:
   - {name: pipeline_id, type: String, description: "ID of the Elyra Kubeflow pipeline to trigger"}
   - {name: experiment_id, type: String, description: "ID of the Kubeflow experiment"}
   - {name: model_config, type: String, description: "JSON string for model configuration"}
+  - {name: model_name, type: String, description: "Name of the model to be used"}
 implementation:
   container:
     image: python:3.8-slim
@@ -37,6 +38,7 @@ implementation:
         parser.add_argument('--pipeline_id', type=str, required=True, help='ID of the Elyra Kubeflow pipeline to trigger.')
         parser.add_argument('--experiment_id', type=str, required=True, help='ID of the Kubeflow experiment.')
         parser.add_argument('--model_config', type=str, required=True, help='JSON string for model configuration.')
+        parser.add_argument('--model_name', type=str, required=True, help='Name of the model to be used.')
         args = parser.parse_args()
 
         trigger_url = f"{args.domain}/bob-service-test/v1.0/pipeline/trigger/ml?pipelineId={args.pipeline_id}"
@@ -54,7 +56,7 @@ implementation:
             "experimentId": args.experiment_id,
             "enableCaching": True,
             "parameters": {
-                "model_name" : "gcn",
+                "model_name" : args.model_name,
                 "model_config" : args.model_config,
                 "dataset_cdn_url": args.pickle_cdn_url,
                 "weigts_cdn_url": args.config_cdn_url
@@ -111,3 +113,5 @@ implementation:
       - {inputValue: experiment_id}
       - --model_config
       - {inputValue: model_config}
+      - --model_name
+      - {inputValue: model_name}
