@@ -41,6 +41,9 @@ implementation:
         parser.add_argument('--model_name', type=str, required=True, help='Name of the model to be used.')
         args = parser.parse_args()
 
+        args.pickle_cdn_url = args.pickle_cdn_url.replace("$$", "$$$")
+        args.config_cdn_url = args.config_cdn_url.replace("$$", "$$$")
+
         trigger_url = f"{args.domain}/bob-service-test/v1.0/pipeline/trigger/ml?pipelineId={args.pipeline_id}"
         with open(args.access_token, 'r') as f:
             access_token = f.read().strip()
