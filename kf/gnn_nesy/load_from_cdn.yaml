@@ -36,6 +36,8 @@ implementation:
         parser.add_argument('--weights_out', type=str, required=True)
         args = parser.parse_args()
 
+        args.process_data_url = args.process_data_url.replace("$$", "$$$")
+        args.weights_url = args.weights_url.replace("$$", "$$$")
         # --- Step 1: Download pickle from CDN ---
         print(f"Fetching dataset from CDN: {args.process_data_url}")
         resp = requests.get(args.process_data_url)
