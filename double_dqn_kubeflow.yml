@@ -4,6 +4,17 @@ inputs:
   - name: input_state
     type: String
     description: 'JSON object with the state, e.g. {"accuracy": 0.9, "latency": 0.2, "epochs": 10}'
+  - name: params_json
+    type: String
+    description: 'JSON array of parameter definitions, e.g. [{"key": "accuracy", "sign": "+", "mul": 1.0}]'
+  - name: policy_model_weights
+    type: Path
+    description: 'Optional path to pre-trained policy model weights (.pt file)'
+    optional: true
+  - name: target_model_weights
+    type: Path
+    description: 'Optional path to pre-trained target model weights (.pt file)'
+    optional: true
 outputs:
   - name: best_action_name
     type: String
@@ -31,8 +42,10 @@ implementation:
         import json
         import argparse
         import os
+        import numpy as np
 
-        params = [
+        # Default parameters if not provided
+        default_params = [
             {"key": "accuracy", "sign": "+", "mul": 1.0},
             {"key": "latency", "sign": "-", "mul": 0.5},
             {"key": "epochs", "sign": "-", "mul": 0.1}
@@ -45,17 +58,19 @@ implementation:
             {"id": 3, "name": "Action_D"}
         ]
 
-        class rewardf(nn.Module):
-            def __init__(self):
+        # Improved deeper network (3. Model architecture)
+        class QNetwork(nn.Module):
+            def __init__(self, num_params, num_actions):
                 super().__init__()
-                self.fc1 = nn.Linear(len(params), 16)
-                self.fc2 = nn.Linear(16, len(action_list))
+                self.fc1 = nn.Linear(num_params, 64)
+                self.fc2 = nn.Linear(64, 64)
+                self.fc3 = nn.Linear(64, num_actions)
             def forward(self, x):
                 x = F.relu(self.fc1(x))
-                return self.fc2(x)
+                x = F.relu(self.fc2(x))
+                return self.fc3(x)
 
-
-        def calculate_reward(state_values, action_id):
+        def calculate_reward(state_values, action_id, params):
             reward = 0.0
             p_values = {p["key"]: val for p, val in zip(params, state_values)}
 
@@ -73,17 +88,53 @@ implementation:
 
             return reward
 
-        lr = 0.01
-        gamma = 0.99  # Discount factor
-        TARGET_UPDATE_FREQ = 10  # How often to update the target network
+        lr = 0.001
+        gamma = 0.99
+        TARGET_UPDATE_FREQ = 10
 
-        policy_net = rewardf()
-        target_net = rewardf()
-        target_net.load_state_dict(policy_net.state_dict())
-        target_net.eval() # Target network is not trained directly
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--input_state', type=str, required=True)
+        parser.add_argument('--params_json', type=str, default=json.dumps(default_params))
+        parser.add_argument('--policy_model_weights', type=str, default=None)
+        parser.add_argument('--target_model_weights', type=str, default=None)
+        parser.add_argument('--best_action_name', type=str, required=True)
+        parser.add_argument('--best_action_id', type=str, required=True)
+        args = parser.parse_args()
+
+        params = json.loads(args.params_json)
+
+        # (7) Reproducibility: fix random seeds
+        seed = 42
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
+
+        # (5) GPU support
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        policy_net = QNetwork(len(params), len(action_list)).to(device)
+        target_net = QNetwork(len(params), len(action_list)).to(device)
 
         optimizer = optim.Adam(policy_net.parameters(), lr=lr)
         loss_fn = nn.MSELoss()
+
+        # Load weights if available
+        if args.policy_model_weights and os.path.exists(args.policy_model_weights):
+            policy_net.load_state_dict(torch.load(args.policy_model_weights, map_location=device))
+            print(f"Loaded policy model weights from {args.policy_model_weights}")
+        else:
+            print("No policy model weights provided or file not found. Starting with new policy network.")
+
+        if args.target_model_weights and os.path.exists(args.target_model_weights):
+            target_net.load_state_dict(torch.load(args.target_model_weights, map_location=device))
+            print(f"Loaded target model weights from {args.target_model_weights}")
+        else:
+            target_net.load_state_dict(policy_net.state_dict())
+            print("No target model weights provided or file not found. Initializing target network from policy network.")
+
+        target_net.eval()
 
         def get_best_action(state, model, epsilon=0.0, print_q_values=True):
             if random.random() < epsilon:
@@ -92,51 +143,35 @@ implementation:
                 with torch.no_grad():
                     q_values = model(state)
                     if print_q_values:
-                        probabilities = F.softmax(q_values, dim=1)
-                        print("Action 'Probabilities' (Softmax of Q-values):", probabilities.numpy())
-                    best_action_id = torch.argmax(q_values).item()
-                    return best_action_id
+                        probs = F.softmax(q_values, dim=1)
+                        print("Action Probabilities:", probs.cpu().numpy())
+                    return torch.argmax(q_values).item()
 
-        def train_dqn_step(prev_state_dict, action_taken, new_state_dict):
-            # Convert state_dicts to ordered list of values
+        def train_dqn_step(prev_state_dict, action_taken, new_state_dict, params):
             prev_ordered_state_values = [prev_state_dict[p["key"]] for p in params]
-            prev_state_tensor = torch.tensor([prev_ordered_state_values], dtype=torch.float32)
+            prev_state_tensor = torch.tensor([prev_ordered_state_values], dtype=torch.float32, device=device)
 
             new_ordered_state_values = [new_state_dict[p["key"]] for p in params]
-            new_state_tensor = torch.tensor([new_ordered_state_values], dtype=torch.float32)
+            new_state_tensor = torch.tensor([new_ordered_state_values], dtype=torch.float32, device=device)
 
-            reward = calculate_reward(new_ordered_state_values, action_taken)
+            reward = calculate_reward(new_ordered_state_values, action_taken, params)
 
-            # Get Q-values for the previous state from the policy network
             q_values = policy_net(prev_state_tensor)
 
-            # Double DQN: Select best action from policy_net for the new_state
-            # and then evaluate it using the target_net
             with torch.no_grad():
                 next_q_values_policy = policy_net(new_state_tensor)
                 best_next_action = torch.argmax(next_q_values_policy, dim=1).item()
                 next_q_value_target = target_net(new_state_tensor)[0, best_next_action]
 
-            # Compute the target Q-value
             q_target = q_values.clone().detach()
             q_target[0, action_taken] = reward + gamma * next_q_value_target
 
-            # Compute loss and optimize
             loss = loss_fn(q_values, q_target)
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
-        parser = argparse.ArgumentParser()
-        parser.add_argument('--input_state', type=str, required=True)
-        parser.add_argument('--best_action_name', type=str, required=True)
-        parser.add_argument('--best_action_id', type=str, required=True)
-        args = parser.parse_args()
-
-        os.makedirs(os.path.dirname(args.best_action_name), exist_ok=True)
-        os.makedirs(os.path.dirname(args.best_action_id), exist_ok=True)
-
-        # Example training loop
+        # Training loop
         num_episodes = 50
         epsilon_start = 1.0
         epsilon_end = 0.01
@@ -146,22 +181,19 @@ implementation:
         for episode in range(num_episodes):
             epsilon = max(epsilon_end, epsilon_start * (epsilon_decay ** episode))
 
-            # Simulate an initial state (for simplicity, using a random state)
             prev_state_dict = {p["key"]: random.uniform(0, 1) for p in params}
-            prev_state_dict["epochs"] = random.randint(1, 20) # epochs might be integer
+            if any(p["key"] == "epochs" for p in params):
+                prev_state_dict["epochs"] = random.randint(1, 20)
 
-            # Agent selects an action
-            prev_state_tensor = torch.tensor([[prev_state_dict[p["key"]] for p in params]], dtype=torch.float32)
+            prev_state_tensor = torch.tensor([[prev_state_dict[p["key"]] for p in params]], dtype=torch.float32, device=device)
             action_taken = get_best_action(prev_state_tensor, policy_net, epsilon=epsilon, print_q_values=False)
 
-            # Simulate environment transition (for simplicity, generating a new random state)
             new_state_dict = {p["key"]: random.uniform(0, 1) for p in params}
-            new_state_dict["epochs"] = random.randint(1, 20)
+            if any(p["key"] == "epochs" for p in params):
+                new_state_dict["epochs"] = random.randint(1, 20)
 
-            # Perform a training step
-            train_dqn_step(prev_state_dict, action_taken, new_state_dict)
+            train_dqn_step(prev_state_dict, action_taken, new_state_dict, params)
 
-            # Update the target network
             if episode % TARGET_UPDATE_FREQ == 0:
                 target_net.load_state_dict(policy_net.state_dict())
                 print(f"Episode {episode}: Target network updated.")
@@ -169,27 +201,37 @@ implementation:
             if episode % 10 == 0:
                 print(f"Episode {episode}, Epsilon: {epsilon:.4f}")
 
-        print("\nDouble DQN Training Complete.")
+        # Save checkpoints (5)
+        torch.save(policy_net.state_dict(), "policy_latest.pt")
+        torch.save(target_net.state_dict(), "target_latest.pt")
+        print("Training complete. Models saved as policy_latest.pt and target_latest.pt")
 
-        # Test the trained policy network
+        # Inference
         with open(args.input_state, 'r') as f:
             final_test_state_dict = json.load(f)
-        
-        final_test_state_tensor = torch.tensor([[final_test_state_dict[p["key"]] for p in params]], dtype=torch.float32)
+
+        final_test_state_tensor = torch.tensor([[final_test_state_dict[p["key"]] for p in params]], dtype=torch.float32, device=device)
         final_best_action_id = get_best_action(final_test_state_tensor, policy_net, epsilon=0.0, print_q_values=True)
         final_best_action_name = next((a["name"] for a in action_list if a["id"] == final_best_action_id), "Unknown")
-
-        print(f"\nFinal Test State: {final_test_state_dict}")
-        print("Final Best Action ID:", final_best_action_id)
-        print("Final Best Action Name:", final_best_action_name)
 
         with open(args.best_action_id, 'w') as f:
             f.write(str(final_best_action_id))
         with open(args.best_action_name, 'w') as f:
             f.write(final_best_action_name)
+
+        print(f"\nFinal Test State: {final_test_state_dict}")
+        print("Final Best Action ID:", final_best_action_id)
+        print("Final Best Action Name:", final_best_action_name)
+
     args:
       - --input_state
       - {inputPath: input_state}
+      - --params_json
+      - {inputValue: params_json}
+      - --policy_model_weights
+      - {inputPath: policy_model_weights}
+      - --target_model_weights
+      - {inputPath: target_model_weights}
       - --best_action_name
       - {outputPath: best_action_name}
       - --best_action_id
