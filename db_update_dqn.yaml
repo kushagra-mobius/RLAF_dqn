@@ -1,7 +1,7 @@
 name: Push to Pi and Update RLAF State
 description: Uploads new model weights, updates their CDN URLs in the database, and appends the new rlaf2pierce action.
 inputs:
-  - {name: access_token, type: String}
+  - {name: access_token, type: string}
   - {name: domain, type: String}
   - {name: schema_id, type: String}
   - {name: model_id, type: String}
@@ -43,6 +43,9 @@ implementation:
         parser.add_argument('--current_state', type=str, required=True)
         parser.add_argument('--previous_state', type=str, required=True)
         args = parser.parse_args()
+
+        with open(args.access_token, 'r') as f:
+            access_token = f.read().strip()
 
         print(f"Starting db_update_dqn component")
         print(f"Inputs:")
@@ -112,8 +115,8 @@ implementation:
             response.raise_for_status()
             return response.json()
 
-        new_policy_cdn_url = upload_file_to_cdn(args.updated_policy_model_weights, args.access_token, args.domain)
-        new_target_cdn_url = upload_file_to_cdn(args.updated_target_model_weights, args.access_token, args.domain)
+        new_policy_cdn_url = upload_file_to_cdn(args.updated_policy_model_weights, access_token, args.domain)
+        new_target_cdn_url = upload_file_to_cdn(args.updated_target_model_weights, access_token, args.domain)
 
         with open(args.db_data_json, 'r') as f:
             db_data = json.load(f)
@@ -147,13 +150,13 @@ implementation:
             update_payload["target_cdn"] = new_target_cdn_url
 
         print(f"Updating instance {instance_id}...")
-        update_instance(args.access_token, args.domain, args.schema_id, instance_id, update_payload)
+        update_instance(access_token, args.domain, args.schema_id, instance_id, update_payload)
         print(f"Instance {instance_id} updated successfully.")
         print(f"db_update_dqn component finished")
 
     args:
       - --access_token
-      - {inputValue: access_token}
+      - {inputPath: access_token}
       - --domain
       - {inputValue: domain}
       - --schema_id

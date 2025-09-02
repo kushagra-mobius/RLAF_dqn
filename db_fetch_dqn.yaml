@@ -1,7 +1,7 @@
 name: Get from Pi and Prep for DQN
 description: Fetches latest pierce2rlaf data, downloads model weights, and prepares inputs for the Double DQN component.
 inputs:
-  - {name: access_token, type: String}
+  - {name: access_token, type: string}
   - {name: domain, type: String}
   - {name: schema_id, type: String}
   - {name: model_id, type: String}
@@ -45,6 +45,9 @@ implementation:
         parser.add_argument('--rlaf_actions_json', type=str, required=True)
         args = parser.parse_args()
 
+        with open(args.access_token, 'r') as f:
+            access_token = f.read().strip()
+
         print(f"Starting db_fetch_dqn component")
         print(f"Inputs:")
         print(f"  Domain: {args.domain}")
@@ -78,7 +81,7 @@ implementation:
                 open(output_path, 'a').close()
 
 
-        db_data = get_instances(args.access_token, args.domain, args.schema_id, args.model_id)
+        db_data = get_instances(access_token, args.domain, args.schema_id, args.model_id)
 
         os.makedirs(os.path.dirname(args.db_data_json), exist_ok=True)
         with open(args.db_data_json, 'w') as f:
@@ -158,7 +161,7 @@ implementation:
         print(f"  rlaf_actions_json: {args.rlaf_actions_json}")
     args:
       - --access_token
-      - {inputValue: access_token}
+      - {inputPath: access_token}
       - --domain
       - {inputValue: domain}
       - --schema_id
