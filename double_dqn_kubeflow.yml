@@ -1,12 +1,22 @@
 name: Double DQN Action Selection
 description: Takes a state as JSON, trains a Double DQN model, and returns the best action.
 inputs:
-  - name: input_state
-    type: String
-    description: 'JSON object with the state, e.g. {"accuracy": 0.9, "latency": 0.2, "epochs": 10}'
+  - name: previous_state
+    type: Path
+    description: 'Path to a JSON file with the previous state'
+  - name: current_state
+    type: Path
+    description: 'Path to a JSON file with the current state'
+  - name: action_id
+    type: Integer
+    description: 'The action ID taken in the previous state'
+  - name: episode
+    type: Integer
+    description: 'Current episode number for target network update tracking'
   - name: params_json
     type: String
     description: 'JSON array of parameter definitions, e.g. [{"key": "accuracy", "sign": "+", "mul": 1.0}]'
+    optional: true
   - name: policy_model_weights
     type: Path
     description: 'Optional path to pre-trained policy model weights (.pt file)'
@@ -20,6 +30,12 @@ outputs:
     type: String
   - name: best_action_id
     type: String
+  - name: next_episode
+    type: String
+  - name: updated_policy_model_weights
+    type: Path
+  - name: updated_target_model_weights
+    type: Path
 implementation:
   container:
     image: python:3.9
@@ -93,12 +109,18 @@ implementation:
         TARGET_UPDATE_FREQ = 10
 
         parser = argparse.ArgumentParser()
-        parser.add_argument('--input_state', type=str, required=True)
+        parser.add_argument('--previous_state', type=str, required=True)
+        parser.add_argument('--current_state', type=str, required=True)
+        parser.add_argument('--action_id', type=int, required=True)
+        parser.add_argument('--episode', type=int, required=True)
         parser.add_argument('--params_json', type=str, default=json.dumps(default_params))
         parser.add_argument('--policy_model_weights', type=str, default=None)
         parser.add_argument('--target_model_weights', type=str, default=None)
         parser.add_argument('--best_action_name', type=str, required=True)
         parser.add_argument('--best_action_id', type=str, required=True)
+        parser.add_argument('--next_episode', type=str, required=True)
+        parser.add_argument('--updated_policy_model_weights', type=str, required=True)
+        parser.add_argument('--updated_target_model_weights', type=str, required=True)
         args = parser.parse_args()
 
         params = json.loads(args.params_json)
@@ -171,61 +193,57 @@ implementation:
             loss.backward()
             optimizer.step()
 
-        # Training loop
-        num_episodes = 50
-        epsilon_start = 1.0
-        epsilon_end = 0.01
-        epsilon_decay = 0.995
+        # Single training step based on previous and current state
+        print("\nStarting Single DQN Training Step...")
+        
+        with open(args.previous_state, 'r') as f:
+            previous_state_dict = json.load(f)
+        with open(args.current_state, 'r') as f:
+            current_state_dict = json.load(f)
 
-        print("\nStarting Double DQN Training Loop...")
-        for episode in range(num_episodes):
-            epsilon = max(epsilon_end, epsilon_start * (epsilon_decay ** episode))
+        action_taken = args.action_id
+        episode = args.episode
 
-            prev_state_dict = {p["key"]: random.uniform(0, 1) for p in params}
-            if any(p["key"] == "epochs" for p in params):
-                prev_state_dict["epochs"] = random.randint(1, 20)
+        train_dqn_step(previous_state_dict, action_taken, current_state_dict, params)
 
-            prev_state_tensor = torch.tensor([[prev_state_dict[p["key"]] for p in params]], dtype=torch.float32, device=device)
-            action_taken = get_best_action(prev_state_tensor, policy_net, epsilon=epsilon, print_q_values=False)
+        if episode % TARGET_UPDATE_FREQ == 0:
+            target_net.load_state_dict(policy_net.state_dict())
+            print(f"Episode {episode}: Target network updated.")
 
-            new_state_dict = {p["key"]: random.uniform(0, 1) for p in params}
-            if any(p["key"] == "epochs" for p in params):
-                new_state_dict["epochs"] = random.randint(1, 20)
+        # Save updated models
+        torch.save(policy_net.state_dict(), args.updated_policy_model_weights)
+        torch.save(target_net.state_dict(), args.updated_target_model_weights)
+        print(f"Training step complete. Models saved to {args.updated_policy_model_weights} and {args.updated_target_model_weights}")
 
-            train_dqn_step(prev_state_dict, action_taken, new_state_dict, params)
+        # Inference on the current state
+        current_state_tensor = torch.tensor([[current_state_dict[p["key"]] for p in params]], dtype=torch.float32, device=device)
+        best_action_id_val = get_best_action(current_state_tensor, policy_net, epsilon=0.0, print_q_values=True)
+        best_action_name_val = next((a["name"] for a in action_list if a["id"] == best_action_id_val), "Unknown")
 
-            if episode % TARGET_UPDATE_FREQ == 0:
-                target_net.load_state_dict(policy_net.state_dict())
-                print(f"Episode {episode}: Target network updated.")
-
-            if episode % 10 == 0:
-                print(f"Episode {episode}, Epsilon: {epsilon:.4f}")
-
-        # Save checkpoints (5)
-        torch.save(policy_net.state_dict(), "policy_latest.pt")
-        torch.save(target_net.state_dict(), "target_latest.pt")
-        print("Training complete. Models saved as policy_latest.pt and target_latest.pt")
-
-        # Inference
-        with open(args.input_state, 'r') as f:
-            final_test_state_dict = json.load(f)
-
-        final_test_state_tensor = torch.tensor([[final_test_state_dict[p["key"]] for p in params]], dtype=torch.float32, device=device)
-        final_best_action_id = get_best_action(final_test_state_tensor, policy_net, epsilon=0.0, print_q_values=True)
-        final_best_action_name = next((a["name"] for a in action_list if a["id"] == final_best_action_id), "Unknown")
-
+        # Write outputs
         with open(args.best_action_id, 'w') as f:
-            f.write(str(final_best_action_id))
+            f.write(str(best_action_id_val))
         with open(args.best_action_name, 'w') as f:
-            f.write(final_best_action_name)
+            f.write(best_action_name_val)
+        
+        next_episode_val = episode + 1
+        with open(args.next_episode, 'w') as f:
+            f.write(str(next_episode_val))
 
-        print(f"\nFinal Test State: {final_test_state_dict}")
-        print("Final Best Action ID:", final_best_action_id)
-        print("Final Best Action Name:", final_best_action_name)
+        print(f"\nCurrent State: {current_state_dict}")
+        print("Best Action ID:", best_action_id_val)
+        print("Best Action Name:", best_action_name_val)
+        print("Next Episode:", next_episode_val)
 
     args:
-      - --input_state
-      - {inputPath: input_state}
+      - --previous_state
+      - {inputPath: previous_state}
+      - --current_state
+      - {inputPath: current_state}
+      - --action_id
+      - {inputValue: action_id}
+      - --episode
+      - {inputValue: episode}
       - --params_json
       - {inputValue: params_json}
       - --policy_model_weights
@@ -236,3 +254,9 @@ implementation:
       - {outputPath: best_action_name}
       - --best_action_id
       - {outputPath: best_action_id}
+      - --next_episode
+      - {outputPath: next_episode}
+      - --updated_policy_model_weights
+      - {outputPath: updated_policy_model_weights}
+      - --updated_target_model_weights
+      - {outputPath: updated_target_model_weights}

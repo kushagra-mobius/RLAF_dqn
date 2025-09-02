@@ -1,0 +1,95 @@
+name: Push To Pi
+description: Updates specified fields in database instances.
+inputs:
+  - name: updates_list
+    type: String
+implementation:
+  container:
+    image: python:3.9
+    command:
+      - sh
+      - -c
+      - |
+        python3 -m pip install --quiet requests || \
+        python3 -m pip install --quiet requests --user
+        exec "$0" "$@"
+      - python3
+      - -u
+      - -c
+      - |
+        import argparse, json, requests, os
+
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--updates_list', type=str, required=True)
+        args = parser.parse_args()
+
+        def get_access_token():
+            login_url = "https://ig.mobiusdtaas.ai/mobius-iam-service/v1.0/login"
+            headers = {
+                "content-type": "application/json",
+                "mask": "false"
+            }
+            payload = {
+                "userName": "aidtaas@gaiansolutions.com",
+                "password": "Gaian@123",
+                "productId": "c2255be4-ddf6-449e-a1e0-b4f7f9a2b636",
+                "requestType": "TENANT"
+            }
+            response = requests.post(login_url, headers=headers, json=payload)
+            response.raise_for_status()
+            return response.json()["accessToken"]
+
+        def update_instance(access_token, instance_id, field_to_update, new_value):
+            update_url = "https://ig.mobiusdtaas.ai/pi-entity-instances-service/v2.0/schemas/68a44cd2eed84d47877a3f5e/instances"
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "dbType": "TIDB",
+                "conditionalFilter": {
+                    "conditions": [
+                        {
+                            "field": "id",
+                            "operator": "EQUAL",
+                            "value": instance_id
+                        }
+                    ]
+                },
+                "partialUpdateRequests": [
+                    {
+                        "patch": [
+                            {
+                                "operation": "REPLACE",
+                                "path": field_to_update,
+                                "value": new_value
+                            }
+                        ]
+                    }
+                ]
+            }
+            response = requests.patch(update_url, headers=headers, json=payload)
+            response.raise_for_status()
+            return response.json()
+
+        token = get_access_token()
+        
+        with open(args.updates_list, 'r') as f:
+            updates_list_content = f.read()
+        
+        if not updates_list_content:
+            raise ValueError(f"Input file {args.updates_list} is empty or contains no data.")
+            
+        updates = json.loads(updates_list_content)
+        print(f"Received updates: {updates}")
+
+        for update_item in updates:
+            instance_id = update_item["instance_id"]
+            field_to_update = update_item["field_to_update"]
+            new_value = update_item["new_value"]
+            print(f"Attempting to update instance {instance_id}, field {field_to_update} with new value.")
+            update_instance(token, instance_id, field_to_update, new_value)
+            print(f"Updated instance {instance_id}, field {field_to_update} successfully.")
+    args:
+      - --updates_list
+      - {inputPath: updates_list}
