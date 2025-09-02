@@ -1,8 +1,18 @@
-name: Get from Pi
-description: Fetches database instance data and outputs it as a JSON string.
+name: Get from Pi and Prep for DQN
+description: Fetches latest pierce2rlaf data, downloads model weights, and prepares inputs for the Double DQN component.
+inputs:
+  - {name: access_token, type: String}
+  - {name: domain, type: String}
+  - {name: schema_id, type: String}
 outputs:
-  - name: db_data_json
-    type: String
+  - {name: db_data_json, type: String}
+  - {name: previous_state, type: Path}
+  - {name: current_state, type: Path}
+  - {name: action_id, type: Integer}
+  - {name: episode, type: Integer}
+  - {name: policy_model_weights, type: Path}
+  - {name: target_model_weights, type: Path}
+  - {name: rlaf_actions_json, type: Path}
 implementation:
   container:
     image: python:3.9
@@ -20,49 +30,115 @@ implementation:
         import argparse, json, requests, os
 
         parser = argparse.ArgumentParser()
+        parser.add_argument('--access_token', type=str, required=True)
+        parser.add_argument('--domain', type=str, required=True)
+        parser.add_argument('--schema_id', type=str, required=True)
         parser.add_argument('--db_data_json', type=str, required=True)
+        parser.add_argument('--previous_state', type=str, required=True)
+        parser.add_argument('--current_state', type=str, required=True)
+        parser.add_argument('--action_id', type=str, required=True)
+        parser.add_argument('--episode', type=str, required=True)
+        parser.add_argument('--policy_model_weights', type=str, required=True)
+        parser.add_argument('--target_model_weights', type=str, required=True)
+        parser.add_argument('--rlaf_actions_json', type=str, required=True)
         args = parser.parse_args()
 
-        def get_access_token():
-            login_url = "https://ig.mobiusdtaas.ai/mobius-iam-service/v1.0/login"
-            headers = {
-                "content-type": "application/json",
-                "mask": "false"
-            }
-            payload = {
-                "userName": "aidtaas@gaiansolutions.com",
-                "password": "Gaian@123",
-                "productId": "c2255be4-ddf6-449e-a1e0-b4f7f9a2b636",
-                "requestType": "TENANT"
-            }
-            response = requests.post(login_url, headers=headers, json=payload)
-            response.raise_for_status()
-            return response.json()["accessToken"]
-
-        def get_instances(access_token):
-            instances_url = "https://ig.mobiusdtaas.ai/pi-entity-instances-service/v3.0/schemas/68a44cd2eed84d47877a3f5e/instances/list"
+        def get_instances(access_token, domain, schema_id):
+            instances_url = f"{domain}/pi-entity-instances-service/v3.0/schemas/{schema_id}/instances/list"
             headers = {
                 "Authorization": f"Bearer {access_token}",
                 "Content-Type": "application/json"
             }
-            payload = {
-                "dbType": "TIDB",
-                "ownedOnly": True,
-                "filter": {
-                    "id": "1"
-                }
-            }
+            payload = {"dbType": "TIDB", "ownedOnly": True, "filter": {"id": "1"}}
             response = requests.post(instances_url, headers=headers, json=payload)
             response.raise_for_status()
             return response.json()
 
-        token = get_access_token()
-        db_data = get_instances(token)
+        def download_file(url, output_path):
+            print(f"Downloading from {url}...")
+            try:
+                response = requests.get(url, stream=True)
+                response.raise_for_status()
+                with open(output_path, 'wb') as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        f.write(chunk)
+                print(f"Downloaded and saved to {output_path}")
+            except requests.exceptions.RequestException as e:
+                print(f"Error downloading from {url}: {e}")
+                print("Creating an empty file as a fallback.")
+                os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                open(output_path, 'a').close()
+
+
+        db_data = get_instances(args.access_token, args.domain, args.schema_id)
 
         os.makedirs(os.path.dirname(args.db_data_json), exist_ok=True)
         with open(args.db_data_json, 'w') as f:
-            f.write(json.dumps(db_data))
+            json.dump(db_data, f)
         print(f"Database data fetched and written to {args.db_data_json}")
+
+        instance = db_data['content'][0]
+        latest_pierce2rlaf = instance['pierce2rlaf'][-1]
+        rlaf_actions = instance['rlaf_actions']
+
+        os.makedirs(os.path.dirname(args.rlaf_actions_json), exist_ok=True)
+        with open(args.rlaf_actions_json, 'w') as f:
+            json.dump(rlaf_actions, f)
+        print(f"RLAF actions written to {args.rlaf_actions_json}")
+
+        previous_state_dict = latest_pierce2rlaf['previous_state']
+        current_state_dict = latest_pierce2rlaf['current_state']
+        action_id_val = latest_pierce2rlaf['action_id']
+        episode_val = latest_pierce2rlaf['episode']
+
+        os.makedirs(os.path.dirname(args.previous_state), exist_ok=True)
+        with open(args.previous_state, 'w') as f:
+            json.dump(previous_state_dict, f)
+        print(f"Previous state written to {args.previous_state}")
+
+        os.makedirs(os.path.dirname(args.current_state), exist_ok=True)
+        with open(args.current_state, 'w') as f:
+            json.dump(current_state_dict, f)
+        print(f"Current state written to {args.current_state}")
+
+        os.makedirs(os.path.dirname(args.action_id), exist_ok=True)
+        with open(args.action_id, 'w') as f:
+            f.write(str(action_id_val))
+        print(f"Action ID {action_id_val} written to {args.action_id}")
+
+        os.makedirs(os.path.dirname(args.episode), exist_ok=True)
+        with open(args.episode, 'w') as f:
+            f.write(str(episode_val))
+        print(f"Episode {episode_val} written to {args.episode}")
+
+        policy_cdn_url = instance.get('policy_cdn')
+        target_cdn_url = instance.get('target_cdn')
+
+        if policy_cdn_url:
+            download_file(policy_cdn_url, args.policy_model_weights)
+        else:
+            print("policy_cdn URL not found. Creating empty weights file.")
+            os.makedirs(os.path.dirname(args.policy_model_weights), exist_ok=True)
+            open(args.policy_model_weights, 'a').close()
+
+        if target_cdn_url:
+            download_file(target_cdn_url, args.target_model_weights)
+        else:
+            print("target_cdn URL not found. Creating empty weights file.")
+            os.makedirs(os.path.dirname(args.target_model_weights), exist_ok=True)
+            open(args.target_model_weights, 'a').close()
     args:
-      - --db_data_json
+      - --access_token
+      - {inputValue: access_token}
+      - --domain
+      - {inputValue: domain}
+      - --schema_id
+      - {inputValue: schema_id}
       - {outputPath: db_data_json}
+      - {outputPath: previous_state}
+      - {outputPath: current_state}
+      - {outputPath: action_id}
+      - {outputPath: episode}
+      - {outputPath: policy_model_weights}
+      - {outputPath: target_model_weights}
+      - {outputPath: rlaf_actions_json}

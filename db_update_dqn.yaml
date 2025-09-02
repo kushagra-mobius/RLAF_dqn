@@ -1,15 +1,26 @@
-name: Push To Pi
-description: Updates specified fields in database instances.
+name: Push to Pi and Update RLAF State
+description: Uploads new model weights, updates their CDN URLs in the database, and appends the new rlaf2pierce action.
 inputs:
-  - name: updates_list
-    type: String
+  - {name: access_token, type: String}
+  - {name: domain, type: String}
+  - {name: schema_id, type: String}
+  - {name: db_data_json, type: String}
+  - {name: updated_policy_model_weights, type: Path}
+  - {name: updated_target_model_weights, type: Path}
+  - {name: best_action_id, type: String}
+  - {name: current_state, type: String}
+  - {name: previous_state, type: String}
 implementation:
   container:
     image: python:3.9
     command:
       - sh
-      - -c
+      - -ec
       - |
+        if ! command -v curl &> /dev/null; then
+            echo "curl could not be found, installing..."
+            apt-get update > /dev/null && apt-get install -y curl > /dev/null
+        fi
         python3 -m pip install --quiet requests || \
         python3 -m pip install --quiet requests --user
         exec "$0" "$@"
@@ -17,79 +28,122 @@ implementation:
       - -u
       - -c
       - |
-        import argparse, json, requests, os
+        import argparse, json, requests, os, time, subprocess, uuid
 
         parser = argparse.ArgumentParser()
-        parser.add_argument('--updates_list', type=str, required=True)
+        parser.add_argument('--access_token', type=str, required=True)
+        parser.add_argument('--domain', type=str, required=True)
+        parser.add_argument('--schema_id', type=str, required=True)
+        parser.add_argument('--db_data_json', type=str, required=True)
+        parser.add_argument('--updated_policy_model_weights', type=str, required=True)
+        parser.add_argument('--updated_target_model_weights', type=str, required=True)
+        parser.add_argument('--best_action_id', type=str, required=True)
+        parser.add_argument('--current_state', type=str, required=True)
+        parser.add_argument('--previous_state', type=str, required=True)
         args = parser.parse_args()
 
-        def get_access_token():
-            login_url = "https://ig.mobiusdtaas.ai/mobius-iam-service/v1.0/login"
-            headers = {
-                "content-type": "application/json",
-                "mask": "false"
-            }
-            payload = {
-                "userName": "aidtaas@gaiansolutions.com",
-                "password": "Gaian@123",
-                "productId": "c2255be4-ddf6-449e-a1e0-b4f7f9a2b636",
-                "requestType": "TENANT"
-            }
-            response = requests.post(login_url, headers=headers, json=payload)
-            response.raise_for_status()
-            return response.json()["accessToken"]
+        def upload_file_to_cdn(file_path, token, domain):
+            if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
+                print(f"File {file_path} is empty or does not exist. Skipping upload.")
+                return None
+            
+            upload_url = f"{domain}/mobius-content-service/v1.0/content/upload?filePathAccess=private&filePath=%2Fdqn%2Fweights%2F"
+            
+            print(f"Uploading file from {file_path} to {upload_url}...")
 
-        def update_instance(access_token, instance_id, field_to_update, new_value):
-            update_url = "https://ig.mobiusdtaas.ai/pi-entity-instances-service/v2.0/schemas/68a44cd2eed84d47877a3f5e/instances"
+            curl_command = [
+                "curl", "--location", upload_url,
+                "--header", f"Authorization: Bearer {token}",
+                "--form", f"file=@{file_path}",
+                "--fail", "--show-error"
+            ]
+            
+            try:
+                process = subprocess.run(
+                    curl_command, capture_output=True, check=True, text=True
+                )
+                response_json = json.loads(process.stdout)
+                relative_cdn_url = response_json.get("cdnUrl")
+                if not relative_cdn_url:
+                    raise ValueError("Failed to parse cdnUrl from CDN response.")
+                
+                content_url = f"https://cdn.mobiusdtaas.ai{relative_cdn_url}"
+                print(f"Upload successful. CDN URL: {content_url}")
+                return content_url
+
+            except subprocess.CalledProcessError as e:
+                print(f"Error executing curl command: {e}")
+                print(f"Stderr: {e.stderr}")
+                raise e
+            except (json.JSONDecodeError, ValueError) as e:
+                print(f"Error processing the server response: {e}")
+                raise e
+
+        def update_instance(access_token, domain, schema_id, instance_id, updates):
+            update_url = f"{domain}/pi-entity-instances-service/v2.0/schemas/{schema_id}/instances"
             headers = {
-                "Authorization": f"Bearer {access_token}",
-                "Content-Type": "application/json"
+                "Authorization": f"Bearer {access_token}", "Content-Type": "application/json"
             }
+            patch_operations = [
+                {"operation": "REPLACE", "path": field, "value": value}
+                for field, value in updates.items()
+            ]
             payload = {
                 "dbType": "TIDB",
-                "conditionalFilter": {
-                    "conditions": [
-                        {
-                            "field": "id",
-                            "operator": "EQUAL",
-                            "value": instance_id
-                        }
-                    ]
-                },
-                "partialUpdateRequests": [
-                    {
-                        "patch": [
-                            {
-                                "operation": "REPLACE",
-                                "path": field_to_update,
-                                "value": new_value
-                            }
-                        ]
-                    }
-                ]
+                "conditionalFilter": {"conditions": [{"field": "id", "operator": "EQUAL", "value": instance_id}]},
+                "partialUpdateRequests": [{"patch": patch_operations}]
             }
             response = requests.patch(update_url, headers=headers, json=payload)
             response.raise_for_status()
             return response.json()
 
-        token = get_access_token()
-        
-        with open(args.updates_list, 'r') as f:
-            updates_list_content = f.read()
-        
-        if not updates_list_content:
-            raise ValueError(f"Input file {args.updates_list} is empty or contains no data.")
-            
-        updates = json.loads(updates_list_content)
-        print(f"Received updates: {updates}")
+        new_policy_cdn_url = upload_file_to_cdn(args.updated_policy_model_weights, args.access_token, args.domain)
+        new_target_cdn_url = upload_file_to_cdn(args.updated_target_model_weights, args.access_token, args.domain)
 
-        for update_item in updates:
-            instance_id = update_item["instance_id"]
-            field_to_update = update_item["field_to_update"]
-            new_value = update_item["new_value"]
-            print(f"Attempting to update instance {instance_id}, field {field_to_update} with new value.")
-            update_instance(token, instance_id, field_to_update, new_value)
-            print(f"Updated instance {instance_id}, field {field_to_update} successfully.")
+        with open(args.db_data_json, 'r') as f:
+            db_data = json.load(f)
+        
+        instance = db_data['content'][0]
+        instance_id = instance['id']
+
+        with open(args.best_action_id, 'r') as f:
+            best_action_id_val = f.read().strip()
+        with open(args.current_state, 'r') as f:
+            current_state_dict = json.load(f)
+        with open(args.previous_state, 'r') as f:
+            previous_state_dict = json.load(f)
+
+        new_rlaf2pierce_entry = {
+            "action_id": int(best_action_id_val),
+            "previous_state": previous_state_dict,
+            "current_state": current_state_dict,
+            "timestamp": int(time.time())
+        }
+
+        if "rlaf2pierce" not in instance:
+            instance["rlaf2pierce"] = []
+        instance["rlaf2pierce"].append(new_rlaf2pierce_entry)
+
+        update_payload = {"rlaf2pierce": instance["rlaf2pierce"]}
+        if new_policy_cdn_url:
+            update_payload["policy_cdn"] = new_policy_cdn_url
+        if new_target_cdn_url:
+            update_payload["target_cdn"] = new_target_cdn_url
+
+        print(f"Updating instance {instance_id}...")
+        update_instance(args.access_token, args.domain, args.schema_id, instance_id, update_payload)
+        print(f"Instance {instance_id} updated successfully.")
+
     args:
-      - --updates_list
-      - {inputPath: updates_list}
+      - --access_token
+      - {inputValue: access_token}
+      - --domain
+      - {inputValue: domain}
+      - --schema_id
+      - {inputValue: schema_id}
+      - {inputPath: db_data_json}
+      - {inputPath: updated_policy_model_weights}
+      - {inputPath: updated_target_model_weights}
+      - {inputPath: best_action_id}
+      - {inputPath: current_state}
+      - {inputPath: previous_state}

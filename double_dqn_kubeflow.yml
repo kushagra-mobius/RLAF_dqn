@@ -25,6 +25,9 @@ inputs:
     type: Path
     description: 'Optional path to pre-trained target model weights (.pt file)'
     optional: true
+  - name: rlaf_actions_json
+    type: Path
+    description: 'Path to a JSON file with the RLAF actions'
 outputs:
   - name: best_action_name
     type: String
@@ -67,12 +70,9 @@ implementation:
             {"key": "epochs", "sign": "-", "mul": 0.1}
         ]
 
-        action_list = [
-            {"id": 0, "name": "Action_A"},
-            {"id": 1, "name": "Action_B"},
-            {"id": 2, "name": "Action_C"},
-            {"id": 3, "name": "Action_D"}
-        ]
+        with open(args.rlaf_actions_json, 'r') as f:
+            action_list_data = json.load(f)
+        action_list = action_list_data['actions']
 
         # Improved deeper network (3. Model architecture)
         class QNetwork(nn.Module):
@@ -116,6 +116,7 @@ implementation:
         parser.add_argument('--params_json', type=str, default=json.dumps(default_params))
         parser.add_argument('--policy_model_weights', type=str, default=None)
         parser.add_argument('--target_model_weights', type=str, default=None)
+        parser.add_argument('--rlaf_actions_json', type=str, required=True)
         parser.add_argument('--best_action_name', type=str, required=True)
         parser.add_argument('--best_action_id', type=str, required=True)
         parser.add_argument('--next_episode', type=str, required=True)
@@ -250,6 +251,8 @@ implementation:
       - {inputPath: policy_model_weights}
       - --target_model_weights
       - {inputPath: target_model_weights}
+      - --rlaf_actions_json
+      - {inputPath: rlaf_actions_json}
       - --best_action_name
       - {outputPath: best_action_name}
       - --best_action_id
