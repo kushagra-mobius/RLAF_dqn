@@ -4,8 +4,9 @@ inputs:
   - {name: access_token, type: String}
   - {name: domain, type: String}
   - {name: schema_id, type: String}
+  - {name: model_id, type: String}
 outputs:
-  - {name: db_data_json, type: String}
+  - {name: db_data_json, type: Path}
   - {name: previous_state, type: Path}
   - {name: current_state, type: Path}
   - {name: action_id, type: Integer}
@@ -33,6 +34,7 @@ implementation:
         parser.add_argument('--access_token', type=str, required=True)
         parser.add_argument('--domain', type=str, required=True)
         parser.add_argument('--schema_id', type=str, required=True)
+        parser.add_argument('--model_id', type=str, required=True)
         parser.add_argument('--db_data_json', type=str, required=True)
         parser.add_argument('--previous_state', type=str, required=True)
         parser.add_argument('--current_state', type=str, required=True)
@@ -43,13 +45,19 @@ implementation:
         parser.add_argument('--rlaf_actions_json', type=str, required=True)
         args = parser.parse_args()
 
-        def get_instances(access_token, domain, schema_id):
+        print(f" Starting db_fetch_dqn component ")
+        print(f"Inputs:")
+        print(f"  Domain: {args.domain}")
+        print(f"  Schema ID: {args.schema_id}")
+        print(f"  Model ID: {args.model_id}")
+
+        def get_instances(access_token, domain, schema_id, model_id):
             instances_url = f"{domain}/pi-entity-instances-service/v3.0/schemas/{schema_id}/instances/list"
             headers = {
                 "Authorization": f"Bearer {access_token}",
                 "Content-Type": "application/json"
             }
-            payload = {"dbType": "TIDB", "ownedOnly": True, "filter": {"id": "1"}}
+            payload = {"dbType": "TIDB", "ownedOnly": True, "filter": {"model_id": model_id}}
             response = requests.post(instances_url, headers=headers, json=payload)
             response.raise_for_status()
             return response.json()
@@ -70,7 +78,7 @@ implementation:
                 open(output_path, 'a').close()
 
 
-        db_data = get_instances(args.access_token, args.domain, args.schema_id)
+        db_data = get_instances(args.access_token, args.domain, args.schema_id, args.model_id)
 
         os.makedirs(os.path.dirname(args.db_data_json), exist_ok=True)
         with open(args.db_data_json, 'w') as f:
@@ -127,6 +135,17 @@ implementation:
             print("target_cdn URL not found. Creating empty weights file.")
             os.makedirs(os.path.dirname(args.target_model_weights), exist_ok=True)
             open(args.target_model_weights, 'a').close()
+        
+        print(f" db_fetch_dqn component finished ")
+        print(f"Outputs created:")
+        print(f"  db_data_json: {args.db_data_json}")
+        print(f"  previous_state: {args.previous_state}")
+        print(f"  current_state: {args.current_state}")
+        print(f"  action_id: {args.action_id}")
+        print(f"  episode: {args.episode}")
+        print(f"  policy_model_weights: {args.policy_model_weights}")
+        print(f"  target_model_weights: {args.target_model_weights}")
+        print(f"  rlaf_actions_json: {args.rlaf_actions_json}")
     args:
       - --access_token
       - {inputValue: access_token}
@@ -134,6 +153,8 @@ implementation:
       - {inputValue: domain}
       - --schema_id
       - {inputValue: schema_id}
+      - --model_id
+      - {inputValue: model_id}
       - {outputPath: db_data_json}
       - {outputPath: previous_state}
       - {outputPath: current_state}

@@ -4,12 +4,13 @@ inputs:
   - {name: access_token, type: String}
   - {name: domain, type: String}
   - {name: schema_id, type: String}
-  - {name: db_data_json, type: String}
+  - {name: model_id, type: String}
+  - {name: db_data_json, type: Path}
   - {name: updated_policy_model_weights, type: Path}
   - {name: updated_target_model_weights, type: Path}
-  - {name: best_action_id, type: String}
-  - {name: current_state, type: String}
-  - {name: previous_state, type: String}
+  - {name: best_action_id, type: Integer}
+  - {name: current_state, type: Path}
+  - {name: previous_state, type: Path}
 implementation:
   container:
     image: python:3.9
@@ -34,6 +35,7 @@ implementation:
         parser.add_argument('--access_token', type=str, required=True)
         parser.add_argument('--domain', type=str, required=True)
         parser.add_argument('--schema_id', type=str, required=True)
+        parser.add_argument('--model_id', type=str, required=True)
         parser.add_argument('--db_data_json', type=str, required=True)
         parser.add_argument('--updated_policy_model_weights', type=str, required=True)
         parser.add_argument('--updated_target_model_weights', type=str, required=True)
@@ -41,6 +43,18 @@ implementation:
         parser.add_argument('--current_state', type=str, required=True)
         parser.add_argument('--previous_state', type=str, required=True)
         args = parser.parse_args()
+
+        print(f" Starting db_update_dqn component ")
+        print(f"Inputs:")
+        print(f"  domain: {args.domain}")
+        print(f"  schema_id: {args.schema_id}")
+        print(f"  model_id: {args.model_id}")
+        print(f"  db_data_json: {args.db_data_json}")
+        print(f"  updated_policy_model_weights: {args.updated_policy_model_weights}")
+        print(f"  updated_target_model_weights: {args.updated_target_model_weights}")
+        print(f"  best_action_id: {args.best_action_id}")
+        print(f"  current_state: {args.current_state}")
+        print(f"  previous_state: {args.previous_state}")
 
         def upload_file_to_cdn(file_path, token, domain):
             if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
@@ -93,6 +107,7 @@ implementation:
                 "conditionalFilter": {"conditions": [{"field": "id", "operator": "EQUAL", "value": instance_id}]},
                 "partialUpdateRequests": [{"patch": patch_operations}]
             }
+            print(f"Update payload: {json.dumps(payload, indent=2)}")
             response = requests.patch(update_url, headers=headers, json=payload)
             response.raise_for_status()
             return response.json()
@@ -119,6 +134,7 @@ implementation:
             "current_state": current_state_dict,
             "timestamp": int(time.time())
         }
+        print(f"New rlaf2pierce entry: {json.dumps(new_rlaf2pierce_entry, indent=2)}")
 
         if "rlaf2pierce" not in instance:
             instance["rlaf2pierce"] = []
@@ -133,6 +149,7 @@ implementation:
         print(f"Updating instance {instance_id}...")
         update_instance(args.access_token, args.domain, args.schema_id, instance_id, update_payload)
         print(f"Instance {instance_id} updated successfully.")
+        print(f" db_update_dqn component finished ")
 
     args:
       - --access_token
@@ -141,6 +158,8 @@ implementation:
       - {inputValue: domain}
       - --schema_id
       - {inputValue: schema_id}
+      - --model_id
+      - {inputValue: model_id}
       - {inputPath: db_data_json}
       - {inputPath: updated_policy_model_weights}
       - {inputPath: updated_target_model_weights}
