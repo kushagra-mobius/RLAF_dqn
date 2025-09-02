@@ -124,7 +124,7 @@ implementation:
         parser.add_argument('--updated_target_model_weights', type=str, required=True)
         args = parser.parse_args()
 
-        print(f" Starting double_dqn_kubeflow component ")
+        print(f"Starting double_dqn_kubeflow component")
         print(f"Inputs:")
         print(f"  previous_state: {args.previous_state}")
         print(f"  current_state: {args.current_state}")
@@ -213,7 +213,7 @@ implementation:
             optimizer.step()
 
         # Single training step based on previous and current state
-        print("\n Starting Single DQN Training Step ")
+        print(f"Starting Single DQN Training Step")
         
         with open(args.previous_state, 'r') as f:
             previous_state_dict = json.load(f)
@@ -223,21 +223,35 @@ implementation:
         action_taken = args.action_id
         episode = args.episode
 
-        train_dqn_step(previous_state_dict, action_taken, current_state_dict, params)
+        if action_taken == -1:
+            print(f"Initial Run Detected (action_id is -1)")
+            print(f"Skipping training step and selecting a random action.")
+            
+            # Save the initialized (or loaded) models without updating them
+            torch.save(policy_net.state_dict(), args.updated_policy_model_weights)
+            torch.save(target_net.state_dict(), args.updated_target_model_weights)
+            print(f"Passing through models without updates. Saved to {args.updated_policy_model_weights} and {args.updated_target_model_weights}")
 
-        if episode % TARGET_UPDATE_FREQ == 0:
-            target_net.load_state_dict(policy_net.state_dict())
-            print(f"Episode {episode}: Target network updated.")
+            # Select a random action for the first step
+            best_action_id_val = random.randint(0, len(action_list) - 1)
+            print(f"Randomly selected action ID: {best_action_id_val}")
 
-        # Save updated models
-        torch.save(policy_net.state_dict(), args.updated_policy_model_weights)
-        torch.save(target_net.state_dict(), args.updated_target_model_weights)
-        print(f"Training step complete. Models saved to {args.updated_policy_model_weights} and {args.updated_target_model_weights}")
+        else:
+            train_dqn_step(previous_state_dict, action_taken, current_state_dict, params)
 
-        # Inference on the current state
-        print("\n Starting Inference on Current State ")
-        current_state_tensor = torch.tensor([[current_state_dict[p["key"]] for p in params]], dtype=torch.float32, device=device)
-        best_action_id_val = get_best_action(current_state_tensor, policy_net, epsilon=0.0, print_q_values=True)
+            if episode % TARGET_UPDATE_FREQ == 0 and episode > 0:
+                target_net.load_state_dict(policy_net.state_dict())
+                print(f"Episode {episode}: Target network updated.")
+
+            # Save updated models
+            torch.save(policy_net.state_dict(), args.updated_policy_model_weights)
+            torch.save(target_net.state_dict(), args.updated_target_model_weights)
+            print(f"Training step complete. Models saved to {args.updated_policy_model_weights} and {args.updated_target_model_weights}")
+
+            # Inference on the current state
+            print(f"Starting Inference on Current State")
+            current_state_tensor = torch.tensor([[current_state_dict[p["key"]] for p in params]], dtype=torch.float32, device=device)
+            best_action_id_val = get_best_action(current_state_tensor, policy_net, epsilon=0.0, print_q_values=True)
         best_action_name_val = next((a["name"] for a in action_list if a["id"] == best_action_id_val), "Unknown")
 
         # Write outputs
@@ -250,7 +264,7 @@ implementation:
         with open(args.next_episode, 'w') as f:
             f.write(str(next_episode_val))
 
-        print(f"\n double_dqn_kubeflow component finished ")
+        print(f"double_dqn_kubeflow component finished")
         print(f"Outputs created:")
         print(f"  best_action_name: {args.best_action_name} -> {best_action_name_val}")
         print(f"  best_action_id: {args.best_action_id} -> {best_action_id_val}")

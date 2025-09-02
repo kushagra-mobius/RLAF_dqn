@@ -45,7 +45,7 @@ implementation:
         parser.add_argument('--rlaf_actions_json', type=str, required=True)
         args = parser.parse_args()
 
-        print(f" Starting db_fetch_dqn component ")
+        print(f"Starting db_fetch_dqn component")
         print(f"Inputs:")
         print(f"  Domain: {args.domain}")
         print(f"  Schema ID: {args.schema_id}")
@@ -86,7 +86,6 @@ implementation:
         print(f"Database data fetched and written to {args.db_data_json}")
 
         instance = db_data['content'][0]
-        latest_pierce2rlaf = instance['pierce2rlaf'][-1]
         rlaf_actions = instance['rlaf_actions']
 
         os.makedirs(os.path.dirname(args.rlaf_actions_json), exist_ok=True)
@@ -94,10 +93,21 @@ implementation:
             json.dump(rlaf_actions, f)
         print(f"RLAF actions written to {args.rlaf_actions_json}")
 
-        previous_state_dict = latest_pierce2rlaf['previous_state']
-        current_state_dict = latest_pierce2rlaf['current_state']
-        action_id_val = latest_pierce2rlaf['action_id']
-        episode_val = latest_pierce2rlaf['episode']
+        if instance.get('pierce2rlaf'):
+            print("Found existing pierce2rlaf data. Using the latest entry.")
+            latest_pierce2rlaf = instance['pierce2rlaf'][-1]
+            previous_state_dict = latest_pierce2rlaf['previous_state']
+            current_state_dict = latest_pierce2rlaf['current_state']
+            action_id_val = latest_pierce2rlaf['action_id']
+            episode_val = latest_pierce2rlaf['episode']
+        else:
+            print("No pierce2rlaf data found. This is the first run. Initializing with default zero-value states.")
+            # NOTE: The keys for the state ('accuracy', 'latency', 'epochs') are assumed based on the DQN component's default parameters.
+            zero_state = {"accuracy": 0.0, "latency": 0.0, "epochs": 0.0}
+            previous_state_dict = zero_state
+            current_state_dict = zero_state
+            action_id_val = -1  # Using -1 to signify no prior action
+            episode_val = 0     # Using 0 to signify the initial run
 
         os.makedirs(os.path.dirname(args.previous_state), exist_ok=True)
         with open(args.previous_state, 'w') as f:
@@ -136,7 +146,7 @@ implementation:
             os.makedirs(os.path.dirname(args.target_model_weights), exist_ok=True)
             open(args.target_model_weights, 'a').close()
         
-        print(f" db_fetch_dqn component finished ")
+        print(f"db_fetch_dqn component finished")
         print(f"Outputs created:")
         print(f"  db_data_json: {args.db_data_json}")
         print(f"  previous_state: {args.previous_state}")

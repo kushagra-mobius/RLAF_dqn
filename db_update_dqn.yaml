@@ -44,7 +44,7 @@ implementation:
         parser.add_argument('--previous_state', type=str, required=True)
         args = parser.parse_args()
 
-        print(f" Starting db_update_dqn component ")
+        print(f"Starting db_update_dqn component")
         print(f"Inputs:")
         print(f"  domain: {args.domain}")
         print(f"  schema_id: {args.schema_id}")
@@ -149,7 +149,7 @@ implementation:
         print(f"Updating instance {instance_id}...")
         update_instance(args.access_token, args.domain, args.schema_id, instance_id, update_payload)
         print(f"Instance {instance_id} updated successfully.")
-        print(f" db_update_dqn component finished ")
+        print(f"db_update_dqn component finished")
 
     args:
       - --access_token
