@@ -168,11 +168,19 @@ implementation:
       - {inputValue: schema_id}
       - --model_id
       - {inputValue: model_id}
+      - --db_data_json
       - {outputPath: db_data_json}
+      - --previous_state
       - {outputPath: previous_state}
+      - --current_state
       - {outputPath: current_state}
+      - --action_id
       - {outputPath: action_id}
+      - --episode
       - {outputPath: episode}
+      - --policy_model_weights
       - {outputPath: policy_model_weights}
+      - --target_model_weights
       - {outputPath: target_model_weights}
+      - --rlaf_actions_json
       - {outputPath: rlaf_actions_json}

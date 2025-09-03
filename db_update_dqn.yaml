@@ -163,9 +163,15 @@ implementation:
       - {inputValue: schema_id}
       - --model_id
       - {inputValue: model_id}
+      - --db_data_json
       - {inputPath: db_data_json}
+      - --updated_policy_model_weights
       - {inputPath: updated_policy_model_weights}
+      - --updated_target_model_weights
       - {inputPath: updated_target_model_weights}
+      - --best_action_id
       - {inputPath: best_action_id}
+      - --current_state
       - {inputPath: current_state}
+      - --previous_state
       - {inputPath: previous_state}
