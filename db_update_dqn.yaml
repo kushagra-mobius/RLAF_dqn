@@ -75,10 +75,12 @@ implementation:
                 "--fail", "--show-error"
             ]
             
+            print(f"Executing curl command: {' '.join(curl_command)}")
             try:
                 process = subprocess.run(
                     curl_command, capture_output=True, check=True, text=True
                 )
+                print(f"Curl stdout: {process.stdout}")
                 response_json = json.loads(process.stdout)
                 relative_cdn_url = response_json.get("cdnUrl")
                 if not relative_cdn_url:
