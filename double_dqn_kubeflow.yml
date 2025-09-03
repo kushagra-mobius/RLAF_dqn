@@ -70,6 +70,22 @@ implementation:
             {"key": "epochs", "sign": "-", "mul": 0.1}
         ]
 
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--previous_state', type=str, required=True)
+        parser.add_argument('--current_state', type=str, required=True)
+        parser.add_argument('--action_id', type=int, required=True)
+        parser.add_argument('--episode', type=int, required=True)
+        parser.add_argument('--params_json', type=str, default=json.dumps(default_params))
+        parser.add_argument('--policy_model_weights', type=str, default=None)
+        parser.add_argument('--target_model_weights', type=str, default=None)
+        parser.add_argument('--rlaf_actions_json', type=str, required=True)
+        parser.add_argument('--best_action_name', type=str, required=True)
+        parser.add_argument('--best_action_id', type=str, required=True)
+        parser.add_argument('--next_episode', type=str, required=True)
+        parser.add_argument('--updated_policy_model_weights', type=str, required=True)
+        parser.add_argument('--updated_target_model_weights', type=str, required=True)
+        args = parser.parse_args()
+
         with open(args.rlaf_actions_json, 'r') as f:
             action_list_data = json.load(f)
         action_list = action_list_data['actions']
@@ -107,22 +123,6 @@ implementation:
         lr = 0.001
         gamma = 0.99
         TARGET_UPDATE_FREQ = 10
-
-        parser = argparse.ArgumentParser()
-        parser.add_argument('--previous_state', type=str, required=True)
-        parser.add_argument('--current_state', type=str, required=True)
-        parser.add_argument('--action_id', type=int, required=True)
-        parser.add_argument('--episode', type=int, required=True)
-        parser.add_argument('--params_json', type=str, default=json.dumps(default_params))
-        parser.add_argument('--policy_model_weights', type=str, default=None)
-        parser.add_argument('--target_model_weights', type=str, default=None)
-        parser.add_argument('--rlaf_actions_json', type=str, required=True)
-        parser.add_argument('--best_action_name', type=str, required=True)
-        parser.add_argument('--best_action_id', type=str, required=True)
-        parser.add_argument('--next_episode', type=str, required=True)
-        parser.add_argument('--updated_policy_model_weights', type=str, required=True)
-        parser.add_argument('--updated_target_model_weights', type=str, required=True)
-        args = parser.parse_args()
 
         print(f"Starting double_dqn_kubeflow component")
         print(f"Inputs:")
