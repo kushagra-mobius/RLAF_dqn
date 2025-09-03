@@ -135,6 +135,18 @@ implementation:
         print(f"  target_model_weights: {args.target_model_weights}")
         print(f"  rlaf_actions_json: {args.rlaf_actions_json}")
 
+        # Create output directories if they don't exist
+        output_paths = [
+            args.best_action_name,
+            args.best_action_id,
+            args.next_episode,
+            args.updated_policy_model_weights,
+            args.updated_target_model_weights
+        ]
+        for path in output_paths:
+            if os.path.dirname(path):
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+
         params = json.loads(args.params_json)
 
         # (7) Reproducibility: fix random seeds
