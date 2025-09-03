@@ -122,7 +122,7 @@ implementation:
             db_data = json.load(f)
         
         instance = db_data['content'][0]
-        instance_id = instance['id']
+        instance_id = args.model_id
 
         with open(args.best_action_id, 'r') as f:
             best_action_id_val = f.read().strip()
