@@ -107,7 +107,7 @@ implementation:
             ]
             payload = {
                 "dbType": "TIDB",
-                "conditionalFilter": {"conditions": [{"field": "id", "operator": "EQUAL", "value": instance_id}]},
+                "conditionalFilter": {"conditions": [{"field": "mdoel_id", "operator": "EQUAL", "value": instance_id}]},
                 "partialUpdateRequests": [{"patch": patch_operations}]
             }
             print(f"Update payload: {json.dumps(payload, indent=2)}")
