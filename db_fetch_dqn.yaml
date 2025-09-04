@@ -104,13 +104,12 @@ implementation:
             action_id_val = latest_pierce2rlaf['action_id']
             episode_val = latest_pierce2rlaf['episode']
         else:
-            print("No pierce2rlaf data found. This is the first run. Initializing with default zero-value states.")
-            # NOTE: The keys for the state ('accuracy', 'latency', 'epochs') are assumed based on the DQN component's default parameters.
-            zero_state = {"accuracy": 0.0, "latency": 0.0, "epochs": 0.0}
-            previous_state_dict = zero_state
-            current_state_dict = zero_state
-            action_id_val = -1  # Using -1 to signify no prior action
-            episode_val = 0     # Using 0 to signify the initial run
+            print("No pierce2rlaf data found. This is the first run. Initializing with empty states.")
+            # The DQN component will create a zero-state dynamically from params_json
+            previous_state_dict = {}
+            current_state_dict = {}
+            action_id_val = -1
+            episode_val = 0
 
         os.makedirs(os.path.dirname(args.previous_state), exist_ok=True)
         with open(args.previous_state, 'w') as f:

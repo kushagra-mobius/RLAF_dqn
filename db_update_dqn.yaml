@@ -11,6 +11,7 @@ inputs:
   - {name: best_action_id, type: Integer}
   - {name: current_state, type: Path}
   - {name: previous_state, type: Path}
+  - {name: pierce_or_not, type: String}
 implementation:
   container:
     image: python:3.9
@@ -42,6 +43,7 @@ implementation:
         parser.add_argument('--best_action_id', type=str, required=True)
         parser.add_argument('--current_state', type=str, required=True)
         parser.add_argument('--previous_state', type=str, required=True)
+        parser.add_argument('--pierce_or_not', type=str, required=True)
         args = parser.parse_args()
 
         with open(args.access_token, 'r') as f:
@@ -58,6 +60,7 @@ implementation:
         print(f"  best_action_id: {args.best_action_id}")
         print(f"  current_state: {args.current_state}")
         print(f"  previous_state: {args.previous_state}")
+        print(f"  pierce_or_not: {args.pierce_or_not}")
 
         def upload_file_to_cdn(file_path, token, domain):
             if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
@@ -132,11 +135,14 @@ implementation:
             current_state_dict = json.load(f)
         with open(args.previous_state, 'r') as f:
             previous_state_dict = json.load(f)
+        with open(args.pierce_or_not, 'r') as f:
+            pierce_or_not_val = f.read().strip()
 
         new_rlaf2pierce_entry = {
             "action_id": int(best_action_id_val),
             "previous_state": previous_state_dict,
             "current_state": current_state_dict,
+            "pierce_or_not": pierce_or_not_val == "true",
             "timestamp": int(time.time())
         }
         print(f"New rlaf2pierce entry: {json.dumps(new_rlaf2pierce_entry, indent=2)}")
@@ -177,3 +183,5 @@ implementation:
       - {inputPath: current_state}
       - --previous_state
       - {inputPath: previous_state}
+      - --pierce_or_not
+      - {inputPath: pierce_or_not}

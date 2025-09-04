@@ -39,6 +39,8 @@ outputs:
     type: Path
   - name: updated_target_model_weights
     type: Path
+  - name: pierce_or_not
+    type: String
 implementation:
   container:
     image: python:3.9
@@ -84,6 +86,7 @@ implementation:
         parser.add_argument('--next_episode', type=str, required=True)
         parser.add_argument('--updated_policy_model_weights', type=str, required=True)
         parser.add_argument('--updated_target_model_weights', type=str, required=True)
+        parser.add_argument('--pierce_or_not', type=str, required=True)
         args = parser.parse_args()
 
         with open(args.rlaf_actions_json, 'r') as f:
@@ -141,7 +144,8 @@ implementation:
             args.best_action_id,
             args.next_episode,
             args.updated_policy_model_weights,
-            args.updated_target_model_weights
+            args.updated_target_model_weights,
+            args.pierce_or_not
         ]
         for path in output_paths:
             if os.path.dirname(path):
@@ -232,6 +236,14 @@ implementation:
         with open(args.current_state, 'r') as f:
             current_state_dict = json.load(f)
 
+        # Handle the first-run case where the trigger sends an empty dict
+        if not previous_state_dict:
+            print("Empty previous_state detected (first run). Creating a dynamic zero-state.")
+            previous_state_dict = {p["key"]: 0.0 for p in params}
+        if not current_state_dict:
+            print("Empty current_state detected (first run). Creating a dynamic zero-state.")
+            current_state_dict = {p["key"]: 0.0 for p in params}
+
         action_taken = args.action_id
         episode = args.episode
 
@@ -266,11 +278,28 @@ implementation:
             best_action_id_val = get_best_action(current_state_tensor, policy_net, epsilon=0.0, print_q_values=True)
         best_action_name_val = next((a["name"] for a in action_list if a["id"] == best_action_id_val), "Unknown")
 
+        # Determine pierce_or_not flag
+        # First run is always true. Otherwise, only pierce if accuracy did NOT improve.
+        if action_taken == -1:
+            pierce_or_not_val = "true"
+        else:
+            # Default to true if accuracy key is missing
+            prev_acc = previous_state_dict.get("accuracy", 0.0)
+            curr_acc = current_state_dict.get("accuracy", 0.0)
+            if curr_acc > prev_acc:
+                pierce_or_not_val = "false"
+                print(f"Accuracy improved from {prev_acc} to {curr_acc}. Setting pierce_or_not to false.")
+            else:
+                pierce_or_not_val = "true"
+                print(f"Accuracy did not improve (from {prev_acc} to {curr_acc}). Setting pierce_or_not to true.")
+
         # Write outputs
         with open(args.best_action_id, 'w') as f:
             f.write(str(best_action_id_val))
         with open(args.best_action_name, 'w') as f:
             f.write(best_action_name_val)
+        with open(args.pierce_or_not, 'w') as f:
+            f.write(pierce_or_not_val)
         
         next_episode_val = episode + 1
         with open(args.next_episode, 'w') as f:
@@ -281,6 +310,7 @@ implementation:
         print(f"  best_action_name: {args.best_action_name} -> {best_action_name_val}")
         print(f"  best_action_id: {args.best_action_id} -> {best_action_id_val}")
         print(f"  next_episode: {args.next_episode} -> {next_episode_val}")
+        print(f"  pierce_or_not: {args.pierce_or_not} -> {pierce_or_not_val}")
         print(f"  updated_policy_model_weights: {args.updated_policy_model_weights}")
         print(f"  updated_target_model_weights: {args.updated_target_model_weights}")
 
@@ -311,3 +341,5 @@ implementation:
       - {outputPath: updated_policy_model_weights}
       - --updated_target_model_weights
       - {outputPath: updated_target_model_weights}
+      - --pierce_or_not
+      - {outputPath: pierce_or_not}
