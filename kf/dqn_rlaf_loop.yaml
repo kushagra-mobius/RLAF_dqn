@@ -35,8 +35,8 @@ implementation:
         from nesy_factory.GNNs import create_model
 
         # --- API/DB Helper Functions ---
-        def trigger_pipeline(config, params_json_str=None):
-            url = f"https://ig.mobiusdtaas.ai/bob-service-test/v1.0/pipeline/trigger/ml?pipelineId={config['pipeline_id']}"
+        def trigger_pipeline(config, domain, params_json_str=None):
+            url = f"{domain}/bob-service-test/v1.0/pipeline/trigger/ml?pipelineId={config['pipeline_id']}"
             pipeline_params = {"params_json": params_json_str} if params_json_str else {}
             payload = json.dumps({
                 "pipelineType": "ML", "containerResources": {}, "experimentId": config['experiment_id'],
@@ -51,8 +51,8 @@ implementation:
             print(f"Triggered pipeline. Response: {response.json()}")
             return response.json()['runId']
 
-        def get_pipeline_status(config):
-            url = f"https://ig.mobiusdtaas.ai/bob-service-test/v1.0/pipeline/{config['pipeline_id']}/status/ml/{config['run_id']}"
+        def get_pipeline_status(config, domain):
+            url = f"{domain}/bob-service-test/v1.0/pipeline/{config['pipeline_id']}/status/ml/{config['run_id']}"
             headers = {'accept': 'application/json', 'Authorization': f"Bearer {config['access_token']}"}
             response = requests.get(url, headers=headers)
             response.raise_for_status()
@@ -81,11 +81,11 @@ implementation:
             print(f"Successfully updated field '{field}' for model_id '{model_id}'")
 
         # --- Core Logic ---
-        def trigger_and_wait_for_dqn_pipeline(config, params_json_str):
-            run_id = trigger_pipeline(config, params_json_str)
+        def trigger_and_wait_for_dqn_pipeline(config, domain, params_json_str):
+            run_id = trigger_pipeline(config, domain, params_json_str)
             config["run_id"] = run_id
             while True:
-                status = get_pipeline_status(config)
+                status = get_pipeline_status(config, domain)
                 print(f"Current DQN pipeline status: {status}")
                 if status == 'SUCCEEDED':
                     print("DQN Pipeline execution completed.")
@@ -178,7 +178,7 @@ implementation:
                 dqn_config = {
                     "pipeline_id": args.dqn_pipeline_id, "experiment_id": args.dqn_experiment_id, "access_token": access_token
                 }
-                trigger_and_wait_for_dqn_pipeline(dqn_config, params_json_str)
+                trigger_and_wait_for_dqn_pipeline(dqn_config, args.domain, params_json_str)
 
                 updated_instance = get_instance(access_token, args.domain, args.schema_id, args.model_id)
                 latest_rlaf2pierce = updated_instance['rlaf2pierce'][-1]
