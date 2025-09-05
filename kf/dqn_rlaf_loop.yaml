@@ -5,11 +5,12 @@ inputs:
   - {name: init_metrics, type: Metrics}
   - {name: data_path, type: Dataset}
   - {name: config, type: String}
-  - {name: domain, type: String, default: "https://ig.mobiusdtaas.ai"}
-  - {name: schema_id, type: String, default: "68a44cd2eed84d47877a3f5e"}
-  - {name: model_id, type: String, default: "1"}
+  - {name: domain, type: String}
+  - {name: schema_id, type: String}
+  - {name: model_id, type: String}
   - {name: dqn_pipeline_id, type: String}
   - {name: dqn_experiment_id, type: String}
+  - {name: access_token, type: string}
 outputs:
   - {name: rlaf_output, type: Dataset}
 implementation:
@@ -34,19 +35,6 @@ implementation:
         from nesy_factory.GNNs import create_model
 
         # --- API/DB Helper Functions ---
-        def get_access_token():
-            url = "https://ig.mobiusdtaas.ai/mobius-iam-service/v1.0/login"
-            payload = json.dumps({
-                "userName": "aidtaas@gaiansolutions.com",
-                "password": "Gaian@123",
-                "productId": "c2255be4-ddf6-449e-a1e0-b4f7f9a2b636",
-                "requestType": "TENANT"
-            })
-            headers = {'Content-Type': 'application/json'}
-            response = requests.post(url, headers=headers, data=payload)
-            response.raise_for_status()
-            return response.json()['accessToken']
-
         def trigger_pipeline(config, params_json_str=None):
             url = f"https://ig.mobiusdtaas.ai/bob-service-test/v1.0/pipeline/trigger/ml?pipelineId={config['pipeline_id']}"
             pipeline_params = {"params_json": params_json_str} if params_json_str else {}
@@ -143,9 +131,11 @@ implementation:
             parser.add_argument('--model_id', type=str, required=True)
             parser.add_argument('--dqn_pipeline_id', type=str, required=True)
             parser.add_argument('--dqn_experiment_id', type=str, required=True)
+            parser.add_argument('--access_token', type=str, required=True)
             args = parser.parse_args()
 
-            access_token = get_access_token()
+            with open(args.access_token, 'r') as f:
+                access_token = f.read().strip()
             with open(args.init_metrics, 'r') as f:
                 current_metrics = json.load(f)
 
@@ -234,3 +224,5 @@ implementation:
       - {inputValue: dqn_pipeline_id}
       - --dqn_experiment_id
       - {inputValue: dqn_experiment_id}
+      - --access_token
+      - {inputPath: access_token}
