@@ -42,6 +42,7 @@ implementation:
                 "pipelineType": "ML", "containerResources": {}, "experimentId": config['experiment_id'],
                 "enableCaching": True, "parameters": pipeline_params, "version": 1
             })
+            print(f"{payload}")
             headers = {
                 'accept': 'application/json', 'Authorization': f"Bearer {config['access_token']}",
                 'Content-Type': 'application/json'
