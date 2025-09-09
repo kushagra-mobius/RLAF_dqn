@@ -177,6 +177,7 @@ implementation:
                 dqn_config = {
                     "pipeline_id": args.dqn_pipeline_id, "experiment_id": args.dqn_experiment_id, "access_token": access_token
                 }
+                print(f"{dqn_config}")
                 trigger_and_wait_for_dqn_pipeline(dqn_config, dqn_params)
 
                 updated_instance = get_instance(access_token, args.domain, args.schema_id, args.model_id)
