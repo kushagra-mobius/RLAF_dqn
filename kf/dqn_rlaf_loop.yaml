@@ -37,7 +37,7 @@ implementation:
         # --- API/DB Helper Functions ---
         def trigger_pipeline(config, dqn_params=None):
             url = f"https://ig.mobiusdtaas.ai/bob-service-test/v1.0/pipeline/trigger/ml?pipelineId={config['pipeline_id']}"
-            pipeline_params = {"params_json": dqn_params} if dqn_params else {}
+            pipeline_params = {"param_json": dqn_params} if dqn_params else {}
             payload = json.dumps({
                 "pipelineType": "ML", "containerResources": {}, "experimentId": config['experiment_id'],
                 "enableCaching": True, "parameters": pipeline_params, "version": 1
@@ -153,7 +153,7 @@ implementation:
                     except (ValueError, TypeError):
                         print(f"Warning: Could not convert metric '{key}' with value '{value}' to float. Skipping.")
                 
-                print(f"Dynamically generated params_json for DQN: {json.dumps(dqn_params)}")
+                print(f"Dynamically generated param_json for DQN: {json.dumps(dqn_params)}")
 
                 instance = get_instance(access_token, args.domain, args.schema_id, args.model_id)
                 
