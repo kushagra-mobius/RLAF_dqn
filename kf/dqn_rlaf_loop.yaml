@@ -37,7 +37,7 @@ implementation:
         # --- API/DB Helper Functions ---
         def trigger_pipeline(config, dqn_params=None):
             url = f"https://ig.mobiusdtaas.ai/bob-service-test/v1.0/pipeline/trigger/ml?pipelineId={config['pipeline_id']}"
-            pipeline_params = {"param_json": dqn_params} if dqn_params else {}
+            pipeline_params = {"param_json": json.dumps(dqn_params)} if dqn_params else {}
             payload = json.dumps({
                 "pipelineType": "ML", "containerResources": {}, "experimentId": config['experiment_id'],
                 "enableCaching": True, "parameters": pipeline_params, "version": 1
