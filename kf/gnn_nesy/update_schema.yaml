@@ -48,8 +48,8 @@ implementation:
             if isinstance(keys, list):
                 # Create a dictionary of the specified keys and their values
                 value_to_patch = {key: update_data.get(key) for key in keys if key in update_data}
-                # Convert dict to JSON string for the patch value
-                value_to_patch = json.dumps(value_to_patch)
+                # The value should be a dict, not a JSON string
+                pass
             else:
                 # Handle single key as before
                 if keys in update_data:
