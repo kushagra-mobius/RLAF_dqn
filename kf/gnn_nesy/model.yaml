@@ -1,5 +1,5 @@
 name: Build Model
-description: Instantiates a model using create_model from the NeSy-Factory-Models GitHub repo, updates config with weights, and saves both model and updated config.
+description: Instantiates a model, updates config with weights, saves the model, and outputs a combined config and model info JSON.
 
 inputs:
   - { name: weight_in, type: String, description: "Weight info as JSON string (e.g., alpha, class_weights)" }
@@ -9,10 +9,11 @@ inputs:
 outputs:
   - { name: model_out, type: Model, description: "Model weights (torch saved state_dict)" }
   - { name: config_updated, type: String, description: "Updated config as JSON string" }
+  - { name: model_info_out, type: String, description: "Combined model info and config as a JSON string" }
 
 implementation:
   container:
-    image: nikhilv215/nesy-factory:v5
+    image: nikhilv215/nesy-factory:v8
     command:
       - sh
       - -c
@@ -34,48 +35,40 @@ implementation:
         parser.add_argument('--config_str', type=str, required=True)
         parser.add_argument('--model_name', type=str, required=True)
         parser.add_argument('--model_out', type=str, required=True)
-        parser.add_argument('--config_updated', type=str, required=True)  # String output path
+        parser.add_argument('--config_updated', type=str, required=True)
+        parser.add_argument('--model_info_out', type=str, required=True)
         args = parser.parse_args()
 
-        # Instantiate model
-        # model = create_model(args.model_name, config)
-        # model = create_model_from_config(args.model_name, args.model_config_name, args.model_config_path)
-
-        # config_json = '{"input_dim": 10, "hidden_dim": 32, "output_dim": 3, "num_layers": 2, "dropout": 0.3, "optimizer": "adam", "learning_rate": 0.01, "normalize": true, "add_self_loops": true, "epochs": 80}'
         config = json.loads(args.config_str)
-
-        # with open(args.weight, 'r') as f:
-        #     weight = json.load(f)
         weight = json.loads(args.weight_in)
         config['focal_loss_alpha'] = weight['focal_loss_alpha']
         config['class_weights'] = weight['class_weights']
         config['model_name'] = args.model_name
-        # Instantiate model with hardcoded config
+        
         model = create_model(args.model_name, config)
         print("Model created successfully.")
-        print(model)
-        # print("Model created successfully.")
-        # print(model)
 
-        # Ensure output dirs
+        model_info = model.get_model_info()
+        print(f"Model Info: {model_info}")
+
+        # Combine config and model_info
+        combined_info = {**config, **model_info}
+
         os.makedirs(os.path.dirname(args.model_out), exist_ok=True)
         os.makedirs(os.path.dirname(args.config_updated), exist_ok=True)
+        os.makedirs(os.path.dirname(args.model_info_out), exist_ok=True)
 
-        # Save model state_dict
         torch.save(model.state_dict(), args.model_out)
-
-        # Save updated config as a string
-        # config_str_out = json.dumps(config, indent=2)
-        # with open(args.config_updated, "w") as f:
-        #     f.write(config_str_out)
 
         with open(args.config_updated, 'w') as f:
             json.dump(config, f, indent=2)
-        print(f"Saved weights to {args.config_updated}")
-        print(f"config: {config}")
+            
+        with open(args.model_info_out, 'w') as f:
+            json.dump(combined_info, f, indent=2)
 
         print(f"Model saved to {args.model_out}")
-        print(f"Updated config string saved to {args.config_updated}")
+        print(f"Updated config saved to {args.config_updated}")
+        print(f"Combined model info saved to {args.model_info_out}")
     args:
       - --model_name
       - {inputValue: model_name}
@@ -87,3 +80,5 @@ implementation:
       - {outputPath: model_out}
       - --config_updated
       - {outputPath: config_updated}
+      - --model_info_out
+      - {outputPath: model_info_out}
