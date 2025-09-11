@@ -128,6 +128,9 @@ implementation:
             print(f"Epoch {epoch} | Loss: {loss}")
             epoch_loss_data.append({'epoch': epoch, 'loss': loss})
 
+        output_dir_epoch_loss = os.path.dirname(args.epoch_loss)
+        if output_dir_epoch_loss and not os.path.exists(output_dir_epoch_loss):
+            os.makedirs(output_dir_epoch_loss, exist_ok=True)
         with open(args.epoch_loss, 'w') as f:
             f.write(json.dumps(epoch_loss_data))
         print("Finished Model Training ")
