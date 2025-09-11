@@ -194,15 +194,16 @@ implementation:
                 for key, value in current_metrics.items():
                     try:
                         cleaned_metrics[key] = float(value)
-                        sign = "+" if "accuracy" in key.lower() or "f1" in key.lower() else "-"
-                        dqn_params.append({"key": key, "sign": sign, "mul": 1.0})
+                        if "loss" in key.lower() or "accuracy" in key.lower():
+                            sign = "+" if "accuracy" in key.lower() or "f1" in key.lower() else "-"
+                            dqn_params.append({"key": key, "sign": sign, "mul": 1.0})
                     except (ValueError, TypeError):
                         print(f"Warning: Could not convert metric '{key}' with value '{value}' to float. Skipping.")
                 
                 print(f"Dynamically generated param_json for DQN: {json.dumps(dqn_params)}")
 
                 instance = get_instance(access_token, args.domain, args.schema_id, args.model_id)
-                
+                print(f"{instance}")
                 if instance.get('pierce2rlaf'):
                     latest_pierce2rlaf = instance['pierce2rlaf'][-1]
                     previous_state = latest_pierce2rlaf['current_state']
