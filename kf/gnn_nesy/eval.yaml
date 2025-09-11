@@ -118,14 +118,7 @@ implementation:
         # Model Evaluation 
         print("Starting Model Evaluation")
         eval_metrics = model.eval_step(data, data.test_mask)
-        print(f"Test Accuracy: {eval_metrics['accuracy']:.4f}")
-        
-      
-        
-        # Prepare metrics output
-        metrics_output = {
-            'test_accuracy': eval_metrics['accuracy']
-        }
+        print(f"Test Accuracy: {eval_metrics}")
         
         # Ensure output directory exists
         os.makedirs(os.path.dirname(args.metrics), exist_ok=True)
