@@ -32,6 +32,7 @@ implementation:
         import requests
         import time
         import pickle
+        import numpy as np
         from nesy_factory.GNNs import create_model
         class DataWrapper:
           def __init__(self, data_dict):
