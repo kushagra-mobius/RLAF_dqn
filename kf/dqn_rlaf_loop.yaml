@@ -15,7 +15,7 @@ outputs:
   - {name: rlaf_output, type: Dataset}
 implementation:
   container:
-    image: nikhilv215/nesy-factory:v5
+    image: nikhilv215/nesy-factory:v8
     command:
       - sh
       - -c
@@ -140,8 +140,8 @@ implementation:
             with open(args.init_metrics, 'r') as f:
                 current_metrics = json.load(f)
 
-            for i in range(2): # Hardcoded loop limit of 2
-                print(f"--- RLAF Loop Iteration {i+1}/2 ---")
+            for i in range(2):
+                print(f"--- RLAF Loop Iteration ---")
                 
                 cleaned_metrics = {}
                 dqn_params = []

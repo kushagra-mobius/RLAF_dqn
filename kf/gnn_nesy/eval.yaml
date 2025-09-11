@@ -8,7 +8,7 @@ outputs:
   - {name: metrics, type: Metrics}         # Evaluation metrics and reports
 implementation:
   container:
-    image: nikhilv215/nesy-factory:v5
+    image: nikhilv215/nesy-factory:v8
     command:
       - sh
       - -c
@@ -134,7 +134,7 @@ implementation:
         print("Saving evaluation metrics...")
         try:
             with open(args.metrics, 'w') as f:
-                json.dump(metrics_output, f, indent=2)
+                json.dump(eval_metrics, f, indent=2)
             print(f"Saved metrics to {args.metrics}")
         except Exception as e:
             print(f"Error saving metrics: {e}")
