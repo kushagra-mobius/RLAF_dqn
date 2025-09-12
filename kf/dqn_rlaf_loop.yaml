@@ -185,9 +185,11 @@ implementation:
                 access_token = f.read().strip()
             with open(args.init_metrics, 'r') as f:
                 current_metrics = json.load(f)
-
-            for i in range(2):
-                print(f"--- RLAF Loop Iteration ---")
+ 
+            action_id_for_next_pierce = -1
+ 
+             for i in range(2):
+                 print(f"--- RLAF Loop Iteration ---")
                 
                 cleaned_metrics = {}
                 dqn_params = []
@@ -207,15 +209,13 @@ implementation:
                 if instance.get('pierce2rlaf'):
                     latest_pierce2rlaf = instance['pierce2rlaf'][-1]
                     previous_state = latest_pierce2rlaf['current_state']
-                    action_id = latest_pierce2rlaf['action_id']
                     episode = latest_pierce2rlaf['episode']
                 else:
                     previous_state = {key: 0.0 for key in cleaned_metrics.keys()}
-                    action_id = -1
                     episode = 0
-
+ 
                 new_pierce2rlaf_entry = {
-                    "action_id": action_id, "previous_state": previous_state,
+                    "action_id": action_id_for_next_pierce, "previous_state": previous_state,
                     "current_state": cleaned_metrics, "episode": episode, "timestamp": int(time.time())
                 }
                 pierce2rlaf_history = instance.get("pierce2rlaf", [])
@@ -234,13 +234,13 @@ implementation:
                 if not latest_rlaf2pierce.get("pierce_or_not", True):
                     print("pierce_or_not is false. Exiting loop.")
                     break
-
+                print(f"{latest_rlaf2pierce}")
                 rlaf_actions = updated_instance.get('rlaf_actions', {}).get('actions', [])
-                best_action_id = latest_rlaf2pierce['action_id']
-                action_details = next((a for a in rlaf_actions if a["id"] == best_action_id), None)
+                action_id_for_next_pierce = latest_rlaf2pierce['action_id']
+                action_details = next((a for a in rlaf_actions if a["id"] == action_id_for_next_pierce), None)
                 if not action_details:
-                    raise ValueError(f"Action with ID {best_action_id} not found in rlaf_actions")
-
+                    raise ValueError(f"Action with ID {action_id_for_next_pierce} not found in rlaf_actions")
+ 
                 print(f"DQN pipeline recommended action: {action_details['name']}. Retraining model.")
                 current_metrics = model_retraining(action_details['params'], args.trained_model, args.data_path, args.config)
 
