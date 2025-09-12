@@ -39,7 +39,7 @@ implementation:
         parser.add_argument('--project_id', type=str, required=True)
         parser.add_argument('--architecture_type', type=str, required=True)
         parser.add_argument('--multiple_rows_json', type=str, required=True)
-        parser.add_argument('--bearer_auth_token', type=argparse.FileType('r'), required=True)
+        parser.add_argument('--bearer_auth_token', type=str, required=True)
         parser.add_argument('--domain', type=str, required=True)
         args = parser.parse_args()
 
