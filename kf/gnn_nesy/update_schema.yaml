@@ -67,6 +67,8 @@ implementation:
                     row['project_id'] = args.project_id
                 if args.architecture_type != '-1':
                     row['architecture_type'] = args.architecture_type
+                if 'execution_id' not in row and args.execution_id != '-1':
+                    row['execution_idd'] = args.execution_id
             
             create_url = f"{args.domain}/pi-entity-instances-service/v2.0/schemas/{args.schema_id}/instances"
             create_payload = {"data": rows_to_create}
