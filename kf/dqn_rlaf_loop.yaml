@@ -188,7 +188,7 @@ implementation:
  
             action_id_for_next_pierce = -1
  
-             for i in range(2):
+            for i in range(2):
                 print(f"--- RLAF Loop Iteration ---")
                 
                 cleaned_metrics = {}
