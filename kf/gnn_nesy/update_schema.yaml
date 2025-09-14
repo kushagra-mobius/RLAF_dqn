@@ -64,13 +64,15 @@ implementation:
             rows_to_create = json.loads(args.multiple_rows_json)
             for row in rows_to_create:
                 if args.tenant_id != '-1':
-                    row['tenant_id'] = args.tenant_id
+                    with open(args.tenant_id, 'r') as f:
+                        row['tenant_id'] = f.read().strip()
                 if args.project_id != '-1':
                     row['project_id'] = args.project_id
                 if args.architecture_type != '-1':
                     row['architecture_type'] = args.architecture_type
                 if 'execution_id' not in row and args.execution_id != '-1':
-                    row['execution_id'] = args.execution_id
+                    with open(args.execution_id, 'r') as f:
+                        row['execution_id'] = f.read().strip()
             
             create_url = f"{args.domain}/pi-entity-instances-service/v2.0/schemas/{args.schema_id}/instances"
             create_payload = {"data": rows_to_create}
