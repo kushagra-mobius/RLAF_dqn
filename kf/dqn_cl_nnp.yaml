@@ -315,7 +315,7 @@ implementation:
                 results = {}
                 
                 for strategy_name in strategies:
-                    print(f"\n Training with {strategy_name.upper()} strategy...")
+                    print(f"\n Training with {strategy_name.upper()} strategy")
                     strategy_results = self._train_single_strategy(tasks, strategy_name, model)
                     results[strategy_name] = strategy_results
                     
@@ -359,7 +359,7 @@ implementation:
                         training_data = task_wrapper
                     
                     # Train on current task
-                    print(f"  Training on Task {task_idx + 1}...")
+                    print(f"  Training on Task {task_idx + 1}")
                     for epoch in range(self.config.get('epochs', 50)):
                         if strategy_name == 'regularized' and task_idx > 0:
                             loss = self._train_with_regularization(model, training_data)
@@ -608,7 +608,7 @@ implementation:
             model_name = config.get('model_name', 'stgnn')
             model = create_model(model_name, config)
             model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
-            print("\n Starting continual learning experiments...")
+            print("\n Starting continual learning experiments")
             trainer = ContinualSTGNNTrainer(config)
             continual_strategies = ['naive']
             
