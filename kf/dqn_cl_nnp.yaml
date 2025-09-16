@@ -310,7 +310,7 @@ implementation:
             def train_continual_stgnn(
                 self, 
                 tasks: List[Dict], 
-                strategies: List[str] = ['naive', 'replay', 'regularized'], model
+                model, strategies: List[str] = ['naive', 'replay', 'regularized']
             ) -> Dict[str, Any]:
                 results = {}
                 
