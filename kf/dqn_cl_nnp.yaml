@@ -397,7 +397,7 @@ implementation:
                     
                     # Print backward transfer analysis
                     if task_idx > 0:
-                        print(f"  📊 Performance on previous tasks:")
+                        print(f"Performance on previous tasks:")
                         for prev_task in task_performance[:-1]:
                             print(f"    Task {prev_task['task_id'] + 1}: {prev_task['accuracy']:.4f}")
                 
