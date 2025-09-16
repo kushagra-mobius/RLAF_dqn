@@ -6,6 +6,7 @@ inputs:
   - {name: config, type: String}           # Model configuration 
 outputs:
   - {name: metrics, type: Metrics}         # Evaluation metrics and reports
+  - {name: metrics_json, type: String}     # Evaluation metrics as a JSON string
 implementation:
   container:
     image: nikhilv215/nesy-factory:v8
@@ -80,6 +81,7 @@ implementation:
         parser.add_argument('--data_path', type=str, required=True)
         parser.add_argument('--config', type=str, required=True)
         parser.add_argument('--metrics', type=str, required=True)
+        parser.add_argument('--metrics_json', type=str, required=True)
         args = parser.parse_args()
 
         print(f"Trained model path: {args.trained_model}")
@@ -122,13 +124,19 @@ implementation:
         
         # Ensure output directory exists
         os.makedirs(os.path.dirname(args.metrics), exist_ok=True)
-        
+        os.makedirs(os.path.dirname(args.metrics_json), exist_ok=True)
+
         # Save metrics
         print("Saving evaluation metrics...")
         try:
             with open(args.metrics, 'w') as f:
                 json.dump(eval_metrics, f, indent=2)
             print(f"Saved metrics to {args.metrics}")
+
+            with open(args.metrics_json, 'w') as f:
+                json.dump(eval_metrics, f, indent=2)
+            print(f"Saved metrics JSON to {args.metrics_json}")
+
         except Exception as e:
             print(f"Error saving metrics: {e}")
             exit(1)
@@ -141,3 +149,5 @@ implementation:
       - {inputValue: config}
       - --metrics
       - {outputPath: metrics}
+      - --metrics_json
+      - {outputPath: metrics_json}
