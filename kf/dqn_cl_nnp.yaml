@@ -315,7 +315,7 @@ implementation:
                 results = {}
                 
                 for strategy_name in strategies:
-                    print(f"\n Training with {strategy_name.upper()} strategy")
+                    print(f"Training with {strategy_name.upper()} strategy")
                     strategy_results = self._train_single_strategy(tasks, strategy_name, model)
                     results[strategy_name] = strategy_results
                     
@@ -334,7 +334,7 @@ implementation:
                 print(f" Learning {len(tasks)} sequential tasks")
                 
                 for task_idx, task_data in enumerate(tasks):
-                    print(f"\n Learning Task {task_idx + 1}: {task_data['description']}")
+                    print(f"Learning Task {task_idx + 1}: {task_data['description']}")
                     
                     # Convert task data to DataWrapper for compatibility
                     task_wrapper = DataWrapper(task_data)
@@ -608,7 +608,7 @@ implementation:
             model_name = config.get('model_name', 'stgnn')
             model = create_model(model_name, config)
             model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
-            print("\n Starting continual learning experiments")
+            print("Starting continual learning experiments")
             trainer = ContinualSTGNNTrainer(config)
             continual_strategies = ['naive']
             
