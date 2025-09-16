@@ -1,0 +1,730 @@
+import string
+name: DQN RLAF Loop
+description: Triggers the DQN RLAF pipeline in a loop to optimize model hyperparameters, controlled by a pierce_or_not flag.
+inputs:
+  - {name: trained_model, type: Model}
+  - {name: init_metrics, type: Metrics}
+  - {name: data_path, type: Dataset}
+  - {name: config, type: String}
+  - {name: domain, type: String}
+  - {name: schema_id, type: String}
+  - {name: model_id, type: String}
+  - {name: dqn_pipeline_id, type: String}
+  - {name: dqn_experiment_id, type: String}
+  - {name: access_token, type: string}
+  - {name: tasks, type: Dataset}
+outputs:
+  - {name: rlaf_output, type: Dataset}
+implementation:
+  container:
+    image: gurpreetgandhi/nesy-factory:v11
+    command:
+      - sh
+      - -c
+      - |
+        exec "$0" "$@"
+      - python3
+      - -u
+      - -c
+      - |
+        import torch
+        import os
+        import json
+        import argparse
+        import requests
+        import time
+        import pickle
+        import numpy as np
+        from nesy_factory.GNNs import create_model
+        class DataWrapper:
+          def __init__(self, data_dict):
+              self.__dict__.update(data_dict)
+
+        class StandardScaler():
+            def __init__(self, mean, std):
+                self.mean = mean
+                self.std = std
+            def transform(self, data):
+                return (data - self.mean) / self.std
+            def inverse_transform(self, data):
+                return (data * self.std) + self.mean
+        
+        class DataLoaderM(object):
+            def __init__(self, xs, ys, batch_size, pad_with_last_sample=True):
+                self.batch_size = batch_size
+                self.current_ind = 0
+                if pad_with_last_sample:
+                    num_padding = (batch_size - (len(xs) % batch_size)) % batch_size
+                    x_padding = np.repeat(xs[-1:], num_padding, axis=0)
+                    y_padding = np.repeat(ys[-1:], num_padding, axis=0)
+                    xs = np.concatenate([xs, x_padding], axis=0)
+                    ys = np.concatenate([ys, y_padding], axis=0)
+                self.size = len(xs)
+                self.num_batch = int(self.size // self.batch_size)
+                self.xs = xs
+                self.ys = ys
+        
+            def shuffle(self):
+                permutation = np.random.permutation(self.size)
+                xs, ys = self.xs[permutation], self.ys[permutation]
+                self.xs = xs
+                self.ys = ys
+        
+            def get_iterator(self):
+                self.current_ind = 0
+                def _wrapper():
+                    while self.current_ind < self.num_batch:
+                        start_ind = self.batch_size * self.current_ind
+                        end_ind = min(self.size, self.batch_size * (self.current_ind + 1))
+                        x_i = self.xs[start_ind: end_ind, ...]
+                        y_i = self.ys[start_ind: end_ind, ...]
+                        yield (x_i, y_i)
+                        self.current_ind += 1
+                return _wrapper()
+        class TemporalDataSplitter:
+          
+          def __init__(self, data, config, strategy='temporal_split'):
+              self.data = data
+              self.config = config
+              self.strategy = strategy
+              
+          def create_continual_tasks(self, num_tasks: int = 3) -> List[Dict]:
+              if self.strategy == 'temporal_split':
+                  return self._temporal_split(num_tasks)
+              elif self.strategy == 'anomaly_split':
+                  return self._anomaly_split(num_tasks)
+              elif self.strategy == 'drift_split':
+                  return self._drift_split(num_tasks)
+              else:
+                  raise ValueError(f"Unknown strategy: {self.strategy}")
+          
+          def _temporal_split(self, num_tasks: int) -> List[Dict]:
+              tasks = []
+              
+              # Calculate splits for train, val, test data
+              train_size = len(self.data.x_train)
+              val_size = len(self.data.x_val)
+              test_size = len(self.data.x_test)
+              
+              # Split each dataset into tasks
+              train_splits = np.array_split(range(train_size), num_tasks)
+              val_splits = np.array_split(range(val_size), num_tasks)
+              test_splits = np.array_split(range(test_size), num_tasks)
+              
+              for i in range(num_tasks):
+                  task_data = {
+                      'task_id': i,
+                      'x_train': self.data.x_train[train_splits[i]],
+                      'y_train': self.data.y_train[train_splits[i]],
+                      'x_val': self.data.x_val[val_splits[i]],
+                      'y_val': self.data.y_val[val_splits[i]],
+                      'x_test': self.data.x_test[test_splits[i]],
+                      'y_test': self.data.y_test[test_splits[i]],
+                      'scaler': self.data.scaler,
+                      'description': f'Temporal Period {i+1}/{num_tasks}'
+                  }
+                  
+                  # Create data loaders for each task
+                  task_data['train_loader'] = DataLoaderM(
+                      task_data['x_train'], task_data['y_train'], self.config['batch_size']
+                  )
+                  task_data['val_loader'] = DataLoaderM(
+                      task_data['x_val'], task_data['y_val'], self.config['batch_size']
+                  )
+                  task_data['test_loader'] = DataLoaderM(
+                      task_data['x_test'], task_data['y_test'], self.config['batch_size']
+                  )
+                  
+                  # Add masks for compatibility
+                  task_data['train_mask'] = torch.ones(len(task_data['x_train']), dtype=torch.bool)
+                  task_data['test_mask'] = torch.ones(len(task_data['x_test']), dtype=torch.bool)
+                  
+                  tasks.append(task_data)
+              
+              return tasks
+          
+          def _anomaly_split(self, num_tasks: int) -> List[Dict]:
+              tasks = []
+              
+              # For demonstration, we'll create synthetic anomaly injection
+              # Task 1: Normal data, Task 2: Mild anomalies, Task 3: Severe anomalies
+              if num_tasks != 3:
+                  print("Anomaly split currently supports exactly 3 tasks. Adjusting to 3.")
+                  num_tasks = 3
+              
+              base_train_size = len(self.data.x_train) // num_tasks
+              base_val_size = len(self.data.x_val) // num_tasks
+              base_test_size = len(self.data.x_test) // num_tasks
+              
+              for i in range(num_tasks):
+                  # Select base data for this task
+                  train_start = i * base_train_size
+                  train_end = (i + 1) * base_train_size if i < num_tasks - 1 else len(self.data.x_train)
+                  
+                  val_start = i * base_val_size
+                  val_end = (i + 1) * base_val_size if i < num_tasks - 1 else len(self.data.x_val)
+                  
+                  test_start = i * base_test_size
+                  test_end = (i + 1) * base_test_size if i < num_tasks - 1 else len(self.data.x_test)
+                  
+                  x_train = self.data.x_train[train_start:train_end].copy()
+                  y_train = self.data.y_train[train_start:train_end].copy()
+                  x_val = self.data.x_val[val_start:val_end].copy()
+                  y_val = self.data.y_val[val_start:val_end].copy()
+                  x_test = self.data.x_test[test_start:test_end].copy()
+                  y_test = self.data.y_test[test_start:test_end].copy()
+                  
+                  # Inject different types of anomalies
+                  if i == 1:  # Mild anomalies
+                      anomaly_factor = 1.2
+                      noise_level = 0.1
+                  elif i == 2:  # Severe anomalies
+                      anomaly_factor = 1.5
+                      noise_level = 0.2
+                  else:  # Normal data
+                      anomaly_factor = 1.0
+                      noise_level = 0.0
+                  
+                  # Apply anomaly injection
+                  if anomaly_factor > 1.0:
+                      # Random anomaly injection
+                      anomaly_indices = np.random.choice(
+                          len(x_train), size=int(0.1 * len(x_train)), replace=False
+                      )
+                      x_train[anomaly_indices] *= anomaly_factor
+                      if noise_level > 0:
+                          noise = np.random.normal(0, noise_level, x_train[anomaly_indices].shape)
+                          x_train[anomaly_indices] += noise
+                  
+                  task_data = {
+                      'task_id': i,
+                      'x_train': x_train,
+                      'y_train': y_train,
+                      'x_val': x_val,
+                      'y_val': y_val,
+                      'x_test': x_test,
+                      'y_test': y_test,
+                      'scaler': self.data.scaler,
+                      'description': f'Anomaly Pattern {i+1}: {"Normal" if i==0 else "Mild" if i==1 else "Severe"}'
+                  }
+                  
+                  # Create data loaders
+                  task_data['train_loader'] = DataLoaderM(
+                      task_data['x_train'], task_data['y_train'], self.config['batch_size']
+                  )
+                  task_data['val_loader'] = DataLoaderM(
+                      task_data['x_val'], task_data['y_val'], self.config['batch_size']
+                  )
+                  task_data['test_loader'] = DataLoaderM(
+                      task_data['x_test'], task_data['y_test'], self.config['batch_size']
+                  )
+                  
+                  # Add masks
+                  task_data['train_mask'] = torch.ones(len(task_data['x_train']), dtype=torch.bool)
+                  task_data['test_mask'] = torch.ones(len(task_data['x_test']), dtype=torch.bool)
+                  
+                  tasks.append(task_data)
+              
+              return tasks
+          
+          def _drift_split(self, num_tasks: int) -> List[Dict]:
+              tasks = []
+              
+              # Create overlapping windows with drift
+              total_train = len(self.data.x_train)
+              total_val = len(self.data.x_val)
+              total_test = len(self.data.x_test)
+              
+              # Calculate window size with overlap
+              overlap_ratio = 0.2  # 20% overlap between consecutive tasks
+              
+              for i in range(num_tasks):
+                  # Progressive shift in data selection
+                  drift_factor = i / (num_tasks - 1) if num_tasks > 1 else 0
+                  
+                  # Calculate start and end indices with drift
+                  train_window_size = total_train // num_tasks
+                  train_start = int(i * train_window_size * (1 - overlap_ratio))
+                  train_end = min(train_start + train_window_size, total_train)
+                  
+                  val_window_size = total_val // num_tasks
+                  val_start = int(i * val_window_size * (1 - overlap_ratio))
+                  val_end = min(val_start + val_window_size, total_val)
+                  
+                  test_window_size = total_test // num_tasks
+                  test_start = int(i * test_window_size * (1 - overlap_ratio))
+                  test_end = min(test_start + test_window_size, total_test)
+                  
+                  # Apply gradual drift to features
+                  x_train = self.data.x_train[train_start:train_end].copy()
+                  y_train = self.data.y_train[train_start:train_end].copy()
+                  x_val = self.data.x_val[val_start:val_end].copy()
+                  y_val = self.data.y_val[val_start:val_end].copy()
+                  x_test = self.data.x_test[test_start:test_end].copy()
+                  y_test = self.data.y_test[test_start:test_end].copy()
+                  
+                  # Apply concept drift (gradual shift in data distribution)
+                  drift_intensity = 0.1 * drift_factor  # Gradually increasing drift
+                  if drift_intensity > 0:
+                      # Add systematic bias that increases over tasks
+                      bias = np.sin(2 * np.pi * drift_factor) * drift_intensity
+                      x_train += bias
+                      x_val += bias
+                      x_test += bias
+                  
+                  task_data = {
+                      'task_id': i,
+                      'x_train': x_train,
+                      'y_train': y_train,
+                      'x_val': x_val,
+                      'y_val': y_val,
+                      'x_test': x_test,
+                      'y_test': y_test,
+                      'scaler': self.data.scaler,
+                      'description': f'Drift Period {i+1} (Intensity: {drift_intensity:.2f})'
+                  }
+                  
+                  # Create data loaders
+                  task_data['train_loader'] = DataLoaderM(
+                      task_data['x_train'], task_data['y_train'], self.config['batch_size']
+                  )
+                  task_data['val_loader'] = DataLoaderM(
+                      task_data['x_val'], task_data['y_val'], self.config['batch_size']
+                  )
+                  task_data['test_loader'] = DataLoaderM(
+                      task_data['x_test'], task_data['y_test'], self.config['batch_size']
+                  )
+                  
+                  # Add masks
+                  task_data['train_mask'] = torch.ones(len(task_data['x_train']), dtype=torch.bool)
+                  task_data['test_mask'] = torch.ones(len(task_data['x_test']), dtype=torch.bool)
+                  
+                  tasks.append(task_data)
+              
+              return tasks
+        class ContinualSTGNNTrainer:
+            
+            def __init__(self, config: Dict[str, Any]):
+                self.config = config
+                self.results = {}
+                
+            def train_continual_stgnn(
+                self, 
+                tasks: List[Dict], 
+                strategies: List[str] = ['naive', 'replay', 'regularized'], model
+            ) -> Dict[str, Any]:
+                results = {}
+                
+                for strategy_name in strategies:
+                    print(f"\n🧠 Training with {strategy_name.upper()} strategy...")
+                    strategy_results = self._train_single_strategy(tasks, strategy_name, model)
+                    results[strategy_name] = strategy_results
+                    
+                return results
+            
+            def _train_single_strategy(self, tasks: List[Dict], strategy_name: str, model) -> Dict[str, Any]:
+                
+                # Create fresh model for each strategy
+            
+                
+                # Track metrics across tasks
+                task_metrics = []
+                all_task_performance = []  # Performance on all previous tasks after each new task
+                previous_task_data = []  # Store data for replay strategies
+                
+                print(f" Learning {len(tasks)} sequential tasks")
+                
+                for task_idx, task_data in enumerate(tasks):
+                    print(f"\n Learning Task {task_idx + 1}: {task_data['description']}")
+                    
+                    # Convert task data to DataWrapper for compatibility
+                    task_wrapper = DataWrapper(task_data)
+                    
+                    # Apply strategy-specific training
+                    if strategy_name == 'naive':
+                        # Naive: simply train on current task
+                        training_data = task_wrapper
+                    elif strategy_name == 'replay':
+                        # Replay: mix current task with samples from previous tasks
+                        if previous_task_data:
+                            training_data = self._create_replay_data(task_data, previous_task_data)
+                        else:
+                            training_data = task_wrapper
+                    elif strategy_name == 'regularized':
+                        # Regularized: add penalty to prevent forgetting (simplified EWC-like)
+                        training_data = task_wrapper
+                        if task_idx > 0:
+                            # Store important parameters for regularization
+                            self._store_important_params(model)
+                    else:
+                        training_data = task_wrapper
+                    
+                    # Train on current task
+                    print(f"  Training on Task {task_idx + 1}...")
+                    for epoch in range(self.config.get('epochs', 50)):
+                        if strategy_name == 'regularized' and task_idx > 0:
+                            loss = self._train_with_regularization(model, training_data)
+                        else:
+                            loss = model.train_step(training_data, training_data.train_mask)
+                        
+                        if epoch % 10 == 0:
+                            print(f"    Epoch {epoch:03d} | Loss: {loss:.4f}")
+                    
+                    # Store task data for potential replay
+                    if strategy_name == 'replay':
+                        previous_task_data.append(task_data)
+                        # Limit memory by keeping only recent tasks
+                        if len(previous_task_data) > 3:
+                            previous_task_data = previous_task_data[-3:]
+                    
+                    # Evaluate on current task
+                    current_task_metrics = model.eval_step(task_wrapper, task_wrapper.test_mask)
+                    task_metrics.append(current_task_metrics)
+                    
+                    print(f"     Task {task_idx + 1} Test Accuracy: {current_task_metrics['accuracy']:.4f}")
+                    
+                    # Evaluate on all previous tasks (including current)
+                    task_performance = []
+                    for eval_task_idx in range(task_idx + 1):
+                        eval_task_wrapper = DataWrapper(tasks[eval_task_idx])
+                        eval_metrics = model.eval_step(eval_task_wrapper, eval_task_wrapper.test_mask)
+                        task_performance.append({
+                            'task_id': eval_task_idx,
+                            'accuracy': eval_metrics['accuracy'],
+                            'description': tasks[eval_task_idx]['description']
+                        })
+                    
+                    all_task_performance.append(task_performance)
+                    
+                    # Print backward transfer analysis
+                    if task_idx > 0:
+                        print(f"  📊 Performance on previous tasks:")
+                        for prev_task in task_performance[:-1]:
+                            print(f"    Task {prev_task['task_id'] + 1}: {prev_task['accuracy']:.4f}")
+                
+                # Calculate continual learning metrics
+                cl_metrics = self._calculate_continual_metrics(all_task_performance)
+                
+                results = {
+                    'strategy': strategy_name,
+                    'task_metrics': task_metrics,
+                    'all_task_performance': all_task_performance,
+                    'continual_metrics': cl_metrics,
+                    'final_model': model
+                }
+                
+                return results
+            
+            def _create_replay_data(self, current_task: Dict, previous_tasks: List[Dict]) -> DataWrapper:
+                # Combine current task with samples from previous tasks
+                replay_ratio = 0.3  # 30% replay data, 70% current task
+                
+                current_size = len(current_task['x_train'])
+                replay_size = int(current_size * replay_ratio / (1 - replay_ratio))
+                
+                # Sample from previous tasks
+                replay_x = []
+                replay_y = []
+                
+                for prev_task in previous_tasks:
+                    # Sample randomly from previous task
+                    if len(prev_task['x_train']) > 0:
+                        sample_size = min(replay_size // len(previous_tasks), len(prev_task['x_train']))
+                        if sample_size > 0:
+                            indices = np.random.choice(len(prev_task['x_train']), sample_size, replace=False)
+                            replay_x.append(prev_task['x_train'][indices])
+                            replay_y.append(prev_task['y_train'][indices])
+                
+                # Combine with current task
+                if replay_x:
+                    combined_x = np.concatenate([current_task['x_train']] + replay_x)
+                    combined_y = np.concatenate([current_task['y_train']] + replay_y)
+                else:
+                    combined_x = current_task['x_train']
+                    combined_y = current_task['y_train']
+                
+                # Create new task data
+                replay_task_data = current_task.copy()
+                replay_task_data['x_train'] = combined_x
+                replay_task_data['y_train'] = combined_y
+                replay_task_data['train_loader'] = DataLoaderM(combined_x, combined_y, self.config['batch_size'])
+                replay_task_data['train_mask'] = torch.ones(len(combined_x), dtype=torch.bool)
+                
+                return DataWrapper(replay_task_data)
+            
+            def _store_important_params(self, model):
+                if not hasattr(self, 'important_params'):
+                    self.important_params = {}
+                
+                for name, param in model.named_parameters():
+                    if param.requires_grad:
+                        self.important_params[name] = param.clone().detach()
+            
+            def _train_with_regularization(self, model, data) -> float:
+                base_loss = model.train_step(data, data.train_mask)
+                
+                # Add regularization penalty
+                reg_loss = 0.0
+                reg_lambda = 0.1  # Regularization strength
+                
+                if hasattr(self, 'important_params'):
+                    for name, param in model.named_parameters():
+                        if name in self.important_params and param.requires_grad:
+                            reg_loss += torch.sum((param - self.important_params[name]).pow(2))
+                
+                # Note: In a full implementation, you'd need to backpropagate this combined loss
+                # For simplicity, we're just tracking it here
+                total_loss = base_loss + reg_lambda * reg_loss.item()
+                
+                return total_loss
+            
+            def _get_strategy_params(self, strategy_name: str) -> Dict[str, Any]:
+                strategy_params = {
+                    'naive': {
+                        'train_epochs': self.config.get('epochs', 50)
+                    },
+                    'ewc': {
+                        'ewc_lambda': 0.4,
+                        'train_epochs': self.config.get('epochs', 50)
+                    },
+                    'si': {
+                        'si_lambda': 0.01,
+                        'train_epochs': self.config.get('epochs', 50)
+                    },
+                    'lwf': {
+                        'alpha': 1.0,
+                        'temperature': 2.0,
+                        'train_epochs': self.config.get('epochs', 50)
+                    }
+                }
+                
+                return strategy_params.get(strategy_name, {})
+            
+            def _calculate_continual_metrics(self, all_task_performance: List[List[Dict]]) -> Dict[str, float]:
+                
+                # Average accuracy across all tasks at the end
+                final_performance = all_task_performance[-1]
+                average_accuracy = np.mean([task['accuracy'] for task in final_performance])
+                
+                # Backward transfer: change in performance on previous tasks
+                backward_transfers = []
+                if len(all_task_performance) > 1:
+                    for task_idx in range(len(all_task_performance) - 1):
+                        initial_acc = all_task_performance[task_idx][task_idx]['accuracy']  # Performance right after learning task
+                        final_acc = all_task_performance[-1][task_idx]['accuracy']  # Performance at the end
+                        backward_transfer = final_acc - initial_acc
+                        backward_transfers.append(backward_transfer)
+                
+                avg_backward_transfer = np.mean(backward_transfers) if backward_transfers else 0.0
+                
+                # Forward transfer: ability to use previous knowledge for new tasks
+                # Measured as performance on task i using knowledge from tasks 0 to i-1
+                forward_transfers = []
+                # For simplicity, we'll approximate this with the trend in first-epoch performance
+                # (This would require more sophisticated tracking in a real implementation)
+                
+                # Forgetting: decrease in performance on previous tasks
+                forgetting_scores = []
+                for task_idx in range(len(all_task_performance) - 1):
+                    max_acc = all_task_performance[task_idx][task_idx]['accuracy']
+                    final_acc = all_task_performance[-1][task_idx]['accuracy']
+                    forgetting = max_acc - final_acc
+                    forgetting_scores.append(max(0, forgetting))  # Only positive forgetting
+                
+                avg_forgetting = np.mean(forgetting_scores) if forgetting_scores else 0.0
+                
+                return {
+                    'average_accuracy': average_accuracy,
+                    'backward_transfer': avg_backward_transfer,
+                    'forgetting': avg_forgetting,
+                    'num_tasks': len(all_task_performance)
+                }
+        #  API/DB Helper Functions 
+        def trigger_pipeline(config, dqn_params=None):
+            url = f"https://ig.mobiusdtaas.ai/bob-service-test/v1.0/pipeline/trigger/ml?pipelineId={config['pipeline_id']}"
+            pipeline_params = {"param_json": json.dumps(dqn_params)} if dqn_params else {}
+            payload = json.dumps({
+                "pipelineType": "ML", "containerResources": {}, "experimentId": config['experiment_id'],
+                "enableCaching": True, "parameters": pipeline_params, "version": 1
+            })
+            print(f"{payload}")
+            headers = {
+                'accept': 'application/json', 'Authorization': f"Bearer {config['access_token']}",
+                'Content-Type': 'application/json'
+            }
+            response = requests.post(url, headers=headers, data=payload)
+            response.raise_for_status()
+            print(f"Triggered pipeline. Response: {response.json()}")
+            return response.json()['runId']
+
+        def get_pipeline_status(config):
+            url = f"https://ig.mobiusdtaas.ai/bob-service-test/v1.0/pipeline/{config['pipeline_id']}/status/ml/{config['run_id']}"
+            headers = {'accept': 'application/json', 'Authorization': f"Bearer {config['access_token']}"}
+            response = requests.get(url, headers=headers)
+            response.raise_for_status()
+            pipeline_status = response.json()
+            latest_state = pipeline_status['run_details']['state_history'][-1]
+            return latest_state['state']
+
+        def get_instance(access_token, domain, schema_id, model_id):
+            url = f"{domain}/pi-entity-instances-service/v3.0/schemas/{schema_id}/instances/list"
+            headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
+            payload = {"dbType": "TIDB", "ownedOnly": True, "filter": {"model_id": model_id}}
+            response = requests.post(url, headers=headers, json=payload)
+            response.raise_for_status()
+            return response.json()['content'][0]
+
+        def update_instance_field(access_token, domain, schema_id, model_id, field, value):
+            url = f"{domain}/pi-entity-instances-service/v2.0/schemas/{schema_id}/instances"
+            headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
+            payload = {
+                "dbType": "TIDB",
+                "conditionalFilter": {"conditions": [{"field": "model_id", "operator": "EQUAL", "value": model_id}]},
+                "partialUpdateRequests": [{"patch": [{"operation": "REPLACE", "path": field, "value": value}]}]
+            }
+            response = requests.patch(url, headers=headers, json=payload)
+            response.raise_for_status()
+            print(f"Successfully updated field '{field}' for model_id '{model_id}'")
+
+        #  Core Logic 
+        def trigger_and_wait_for_dqn_pipeline(config, dqn_params):
+            run_id = trigger_pipeline(config, dqn_params)
+            config["run_id"] = run_id
+            while True:
+                status = get_pipeline_status(config)
+                print(f"Current DQN pipeline status: {status}")
+                if status == 'SUCCEEDED':
+                    print("DQN Pipeline execution completed.")
+                    break
+                elif status in ['FAILED', 'ERROR']:
+                    raise RuntimeError(f"DQN Pipeline failed with status {status}")
+                time.sleep(60)
+
+        def model_retraining(action, model_path, data_path, config_path,tasks_path):
+            with open(data_path, "rb") as f: data = pickle.load(f)
+            with open(config_path, 'r') as f: config = json.load(f)
+            with open(tasks_path, "rb") as f: tasks = pickle.load(f)
+            
+            config.update(action)
+            model_name = config.get('model_name', 'stgnn')
+            model = create_model(model_name, config)
+            model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
+            print("\n Starting continual learning experiments...")
+            trainer = ContinualSTGNNTrainer(config)
+            continual_strategies = ['naive']
+            
+            results = trainer.train_continual_stgnn(tasks, strategies=continual_strategies,model)
+
+
+        #  Main Execution 
+        def main():
+            parser = argparse.ArgumentParser()
+            parser.add_argument('--trained_model', type=str, required=True)
+            parser.add_argument('--init_metrics', type=str, required=True)
+            parser.add_argument('--rlaf_output', type=str, required=True)
+            parser.add_argument('--data_path', type=str, required=True)
+            parser.add_argument('--config', type=str, required=True)
+            parser.add_argument('--domain', type=str, required=True)
+            parser.add_argument('--schema_id', type=str, required=True)
+            parser.add_argument('--model_id', type=str, required=True)
+            parser.add_argument('--dqn_pipeline_id', type=str, required=True)
+            parser.add_argument('--dqn_experiment_id', type=str, required=True)
+            parser.add_argument('--access_token', type=str, required=True)
+            parser.add_argument('--tasks', type=str, required=True)
+            args = parser.parse_args()
+
+            with open(args.access_token, 'r') as f:
+                access_token = f.read().strip()
+            with open(args.init_metrics, 'r') as f:
+                current_metrics = json.load(f)
+ 
+            action_id_for_next_pierce = -1
+ 
+            for i in range(2):
+                print(f" RLAF Loop Iteration ")
+                
+                cleaned_metrics = {}
+                dqn_params = []
+                for key, value in current_metrics.items():
+                    try:
+                        cleaned_metrics[key] = float(value)
+                        if "loss" in key.lower() or "accuracy" in key.lower():
+                            sign = "+" if "accuracy" in key.lower() or "f1" in key.lower() else "-"
+                            dqn_params.append({"key": key, "sign": sign, "mul": 1.0})
+                    except (ValueError, TypeError):
+                        print(f"Warning: Could not convert metric '{key}' with value '{value}' to float. Skipping.")
+                
+                print(f"Dynamically generated param_json for DQN: {json.dumps(dqn_params)}")
+
+                instance = get_instance(access_token, args.domain, args.schema_id, args.model_id)
+                print(f"{instance}")
+                if instance.get('pierce2rlaf'):
+                    latest_pierce2rlaf = instance['pierce2rlaf'][-1]
+                    previous_state = latest_pierce2rlaf['current_state']
+                    episode = latest_pierce2rlaf['episode']
+                else:
+                    previous_state = {key: 0.0 for key in cleaned_metrics.keys()}
+                    episode = 0
+ 
+                new_pierce2rlaf_entry = {
+                    "action_id": action_id_for_next_pierce, "previous_state": previous_state,
+                    "current_state": cleaned_metrics, "episode": episode, "timestamp": int(time.time())
+                }
+                pierce2rlaf_history = instance.get("pierce2rlaf", [])
+                pierce2rlaf_history.append(new_pierce2rlaf_entry)
+                update_instance_field(access_token, args.domain, args.schema_id, args.model_id, "pierce2rlaf", pierce2rlaf_history)
+
+                dqn_config = {
+                    "pipeline_id": args.dqn_pipeline_id, "experiment_id": args.dqn_experiment_id, "access_token": access_token
+                }
+                print(f"{dqn_config}")
+                trigger_and_wait_for_dqn_pipeline(dqn_config, dqn_params)
+
+                updated_instance = get_instance(access_token, args.domain, args.schema_id, args.model_id)
+                latest_rlaf2pierce = updated_instance['rlaf2pierce'][-1]
+                
+                if not latest_rlaf2pierce.get("pierce_or_not", True):
+                    print("pierce_or_not is false. Exiting loop.")
+                    break
+                print(f"{latest_rlaf2pierce}")
+                rlaf_actions = updated_instance.get('rlaf_actions', {}).get('actions', [])
+                action_id_for_next_pierce = latest_rlaf2pierce['action_id']
+                action_details = next((a for a in rlaf_actions if a["id"] == action_id_for_next_pierce), None)
+                if not action_details:
+                    raise ValueError(f"Action with ID {action_id_for_next_pierce} not found in rlaf_actions")
+ 
+                print(f"DQN pipeline recommended action: {action_details['name']}. Retraining model.")
+                current_metrics = model_retraining(action_details['params'], args.trained_model, args.data_path, args.config, args.tasks)
+
+            os.makedirs(os.path.dirname(args.rlaf_output), exist_ok=True)
+            with open(args.rlaf_output, 'w') as f:
+                json.dump({"final_metrics": current_metrics}, f, indent=4)
+            print(f"RLAF loop finished. Final parameters written to {args.rlaf_output}")
+
+        if __name__ == '__main__':
+            main()
+    args:
+      - --trained_model
+      - {inputPath: trained_model}
+      - --init_metrics
+      - {inputPath: init_metrics}
+      - --rlaf_output
+      - {outputPath: rlaf_output}
+      - --data_path
+      - {inputPath: data_path}
+      - --config
+      - {inputPath: config}
+      - --domain
+      - {inputValue: domain}
+      - --schema_id
+      - {inputValue: schema_id}
+      - --model_id
+      - {inputValue: model_id}
+      - --dqn_pipeline_id
+      - {inputValue: dqn_pipeline_id}
+      - --dqn_experiment_id
+      - {inputValue: dqn_experiment_id}
+      - --access_token
+      - {inputPath: access_token}
+      - --tasks
+      - {inputPath: tasks}
