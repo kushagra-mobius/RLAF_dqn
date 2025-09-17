@@ -89,13 +89,13 @@ implementation:
                     print(f"Response content: {e.response.text}")
                 exit(1)
         else:
-            # Check if model_id exists
+            # Check if execution_id exists
             check_url = f"{args.domain}/pi-entity-instances-service/v3.0/schemas/{args.schema_id}/instances/list"
             check_payload = {
                 "dbType": "TIDB",
                 "ownedOnly": True,
                 "filter": {
-                    "model_id": args.model_id
+                    "execution_id": args.execution_id
                 }
             }
             
@@ -128,9 +128,9 @@ implementation:
                         "conditionalFilter": {
                             "conditions": [
                                 {
-                                    "field": "model_id",
+                                    "field": "execution_id",
                                     "operator": "EQUAL",
-                                    "value": args.model_id
+                                    "value": args.execution_id
                                 }
                             ]
                         },
@@ -147,7 +147,9 @@ implementation:
                 else:
                     # Create new row
                     creation_data = update_data.copy()
-                    creation_data['model_id'] = args.model_id
+                    creation_data['execution_id'] = args.execution_id
+                    if args.model_id != '-1':
+                        creation_data['model_id'] = args.model_id
                     if args.tenant_id != '-1':
                         creation_data['tenant_id'] = args.tenant_id
                     if args.project_id != '-1':
