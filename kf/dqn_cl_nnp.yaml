@@ -9,6 +9,7 @@ inputs:
   - {name: schema_id, type: String}
   - {name: model_id, type: String}
   - {name: dqn_pipeline_id, type: String}
+  - {name: pipeline_domain, type: String}
   - {name: dqn_experiment_id, type: String}
   - {name: access_token, type: string}
   - {name: tasks, type: Dataset}
@@ -542,7 +543,7 @@ implementation:
                 }
         #  API/DB Helper Functions 
         def trigger_pipeline(config, dqn_params=None):
-            url = f"https://ig.mobiusdtaas.ai/bob-service-test/v1.0/pipeline/trigger/ml?pipelineId={config['pipeline_id']}"
+            url = f"{args.pipeline_domain}/bob-service-test/v1.0/pipeline/trigger/ml?pipelineId={config['pipeline_id']}"
             pipeline_params = {"param_json": json.dumps(dqn_params)} if dqn_params else {}
             payload = json.dumps({
                 "pipelineType": "ML", "containerResources": {}, "experimentId": config['experiment_id'],
@@ -559,7 +560,7 @@ implementation:
             return response.json()['runId']
 
         def get_pipeline_status(config):
-            url = f"https://ig.mobiusdtaas.ai/bob-service-test/v1.0/pipeline/{config['pipeline_id']}/status/ml/{config['run_id']}"
+            url = f"{args.pipeline_domain}/bob-service-test/v1.0/pipeline/{config['pipeline_id']}/status/ml/{config['run_id']}"
             headers = {'accept': 'application/json', 'Authorization': f"Bearer {config['access_token']}"}
             response = requests.get(url, headers=headers)
             response.raise_for_status()
@@ -632,6 +633,7 @@ implementation:
             parser.add_argument('--dqn_experiment_id', type=str, required=True)
             parser.add_argument('--access_token', type=str, required=True)
             parser.add_argument('--tasks', type=str, required=True)
+            parser.add_argument('--pipeline_domain', type=str, required=True)
             args = parser.parse_args()
 
             with open(args.access_token, 'r') as f:
@@ -729,3 +731,5 @@ implementation:
       - {inputPath: access_token}
       - --tasks
       - {inputPath: tasks}
+      - --pipeline_domain
+      - {inputValue: pipeline_domain}
