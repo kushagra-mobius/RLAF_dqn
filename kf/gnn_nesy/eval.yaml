@@ -9,7 +9,7 @@ outputs:
   - {name: metrics_json, type: String}     # Evaluation metrics as a JSON string
 implementation:
   container:
-    image: nikhilv215/nesy-factory:v8
+    image: gurpreetgandhi/nesy-factory:v11
     command:
       - sh
       - -c
