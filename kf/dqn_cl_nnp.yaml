@@ -616,9 +616,10 @@ implementation:
             continual_strategies = ['naive']
             
             results = trainer.train_continual_stgnn(tasks=tasks, strategies=continual_strategies,model=model)
+            return results
 
 
-        #  Main Execution 
+        #  Main Execution
         def main():
             parser = argparse.ArgumentParser()
             parser.add_argument('--trained_model', type=str, required=True)
