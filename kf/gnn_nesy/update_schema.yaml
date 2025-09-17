@@ -50,8 +50,11 @@ implementation:
 
         with open(args.tenant_id, 'r') as f:
             tenant_id = f.read().strip()
-        print(f"{args.update_data_json}")
-        print(f"{args.mapping_json}")
+
+        print(f" Input Data ")
+        print(f"update_data_json: {args.update_data_json}")
+        print(f"mapping_json: {args.mapping_json}")
+        
         update_data = json.loads(args.update_data_json)
         mapping = json.loads(args.mapping_json)
 
@@ -77,6 +80,11 @@ implementation:
             create_url = f"{args.domain}/pi-entity-instances-service/v2.0/schemas/{args.schema_id}/instances"
             create_payload = {"data": rows_to_create}
             
+            print(f" Creating Multiple Rows ")
+            print(f"Request URL: POST {create_url}")
+            print(f"Request Headers: {json.dumps(headers)}")
+            print(f"Request Payload: {json.dumps(create_payload, indent=2)}")
+
             try:
                 response = requests.post(create_url, headers=headers, data=json.dumps(create_payload))
                 response.raise_for_status()
@@ -84,9 +92,10 @@ implementation:
                 print(f"Response: {response.json()}")
             except requests.exceptions.RequestException as e:
                 print(f"Error creating multiple model instances: {e}")
-                print(f"Request payload: {json.dumps(create_payload)}")
+                print(f"Failed Request Payload: {json.dumps(create_payload, indent=2)}")
                 if e.response:
-                    print(f"Response content: {e.response.text}")
+                    print(f"Response Status Code: {e.response.status_code}")
+                    print(f"Response Content: {e.response.text}")
                 exit(1)
         else:
             # Check if execution_id exists
@@ -99,13 +108,18 @@ implementation:
                 }
             }
             
+            print(f" Checking for Existing Row with execution_id: {args.execution_id} ")
+            print(f"Request URL: POST {check_url}")
+            print(f"Request Headers: {json.dumps(headers)}")
+            print(f"Request Payload: {json.dumps(check_payload, indent=2)}")
+
             try:
                 response = requests.post(check_url, headers=headers, data=json.dumps(check_payload))
                 response.raise_for_status()
                 response_data = response.json()
                 
                 if response_data.get("content"):
-                    # Update existing row
+                    print(f" Instance Found: Updating Row ")
                     patch_requests = []
                     for column, keys in mapping.items():
                         value_to_patch = None
@@ -141,17 +155,21 @@ implementation:
                         ]
                     }
                     
+                    print(f"Request URL: PATCH {update_url}")
+                    print(f"Request Headers: {json.dumps(headers)}")
+                    print(f"Request Payload: {json.dumps(update_payload, indent=2)}")
+                    
                     response = requests.patch(update_url, headers=headers, data=json.dumps(update_payload))
                     response.raise_for_status()
                     print("Successfully updated the model instance.")
                 else:
-                    # Create new row
+                    print(f" No Instance Found: Creating New Row ")
                     creation_data = update_data.copy()
                     creation_data['execution_id'] = args.execution_id
                     if args.model_id != '-1':
                         creation_data['model_id'] = args.model_id
                     if args.tenant_id != '-1':
-                        creation_data['tenant_id'] = args.tenant_id
+                        creation_data['tenant_id'] = tenant_id
                     if args.project_id != '-1':
                         creation_data['project_id'] = args.project_id
                     if args.architecture_type != '-1':
@@ -161,6 +179,10 @@ implementation:
                     create_payload = {
                         "data": [creation_data]
                     }
+
+                    print(f"Request URL: POST {create_url}")
+                    print(f"Request Headers: {json.dumps(headers)}")
+                    print(f"Request Payload: {json.dumps(create_payload, indent=2)}")
                     
                     response = requests.post(create_url, headers=headers, data=json.dumps(create_payload))
                     response.raise_for_status()
@@ -171,7 +193,8 @@ implementation:
             except requests.exceptions.RequestException as e:
                 print(f"Error: {e}")
                 if e.response:
-                    print(f"Response content: {e.response.text}")
+                    print(f"Response Status Code: {e.response.status_code}")
+                    print(f"Response Content: {e.response.text}")
                 exit(1)
 
     args:
