@@ -164,7 +164,18 @@ implementation:
                     print("Successfully updated the model instance.")
                 else:
                     print(f" No Instance Found: Creating New Row ")
-                    creation_data = update_data.copy()
+                    creation_data = {}
+                    for column, keys in mapping.items():
+                        value_to_add = None
+                        if isinstance(keys, list):
+                            value_to_add = {key: update_data.get(key) for key in keys if key in update_data}
+                        else:
+                            if keys in update_data:
+                                value_to_add = str(update_data.get(keys))
+
+                        if value_to_add is not None:
+                            creation_data[column] = value_to_add
+                    
                     creation_data['execution_id'] = args.execution_id
                     if args.model_id != '-1':
                         creation_data['model_id'] = args.model_id
