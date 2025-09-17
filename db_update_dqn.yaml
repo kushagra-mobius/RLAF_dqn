@@ -3,6 +3,7 @@ description: Uploads new model weights, updates their CDN URLs in the database, 
 inputs:
   - {name: access_token, type: string}
   - {name: domain, type: String}
+  - {name: cdn_domain, type: String}
   - {name: schema_id, type: String}
   - {name: model_id, type: String}
   - {name: db_data_json, type: Path}
@@ -34,6 +35,7 @@ implementation:
 
         parser = argparse.ArgumentParser()
         parser.add_argument('--access_token', type=str, required=True)
+        parser.add_argument('--cdn_domain', type=str, required=True)
         parser.add_argument('--domain', type=str, required=True)
         parser.add_argument('--schema_id', type=str, required=True)
         parser.add_argument('--model_id', type=str, required=True)
@@ -50,6 +52,7 @@ implementation:
             access_token = f.read().strip()
 
         print(f"Starting db_update_dqn component")
+        print(f"  cdn_domain: {args.cdn_domain}")
         print(f"Inputs:")
         print(f"  domain: {args.domain}")
         print(f"  schema_id: {args.schema_id}")
@@ -62,7 +65,7 @@ implementation:
         print(f"  previous_state: {args.previous_state}")
         print(f"  pierce_or_not: {args.pierce_or_not}")
 
-        def upload_file_to_cdn(file_path, token, domain):
+        def upload_file_to_cdn(file_path, token, domain, cdn_domain):
             if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
                 print(f"File {file_path} is empty or does not exist. Skipping upload.")
                 return None
@@ -89,7 +92,7 @@ implementation:
                 if not relative_cdn_url:
                     raise ValueError("Failed to parse cdnUrl from CDN response.")
                 
-                content_url = f"https://cdn.mobiusdtaas.ai{relative_cdn_url}"
+                content_url = f"{cdn_domain}{relative_cdn_url}"
                 print(f"Upload successful. CDN URL: {content_url}")
                 return content_url
 
@@ -120,8 +123,8 @@ implementation:
             response.raise_for_status()
             return response.json()
 
-        new_policy_cdn_url = upload_file_to_cdn(args.updated_policy_model_weights, access_token, args.domain)
-        new_target_cdn_url = upload_file_to_cdn(args.updated_target_model_weights, access_token, args.domain)
+        new_policy_cdn_url = upload_file_to_cdn(args.updated_policy_model_weights, access_token, args.domain, args.cdn_domain)
+        new_target_cdn_url = upload_file_to_cdn(args.updated_target_model_weights, access_token, args.domain, args.cdn_domain)
 
         with open(args.db_data_json, 'r') as f:
             db_data = json.load(f)
@@ -165,6 +168,8 @@ implementation:
     args:
       - --access_token
       - {inputPath: access_token}
+      - --cdn_domain
+      - {inputValue: cdn_domain}
       - --domain
       - {inputValue: domain}
       - --schema_id
