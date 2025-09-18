@@ -13,6 +13,7 @@ inputs:
   - { name: multiple_rows_json, type: String, description: "JSON string containing a list of rows to create." }
   - { name: bearer_auth_token, type: string, description: "Bearer token for authentication." }
   - { name: domain, type: String, description: "The domain for the API endpoint." }
+  - { name: float_keys_json, type: String, description: "JSON string of a list of keys to be converted to float."}
 
 implementation:
   container:
@@ -43,6 +44,7 @@ implementation:
         parser.add_argument('--multiple_rows_json', type=str, required=True)
         parser.add_argument('--bearer_auth_token', type=str, required=True)
         parser.add_argument('--domain', type=str, required=True)
+        parser.add_argument('--float_keys_json', type=str, required=False)
         args = parser.parse_args()
 
         with open(args.bearer_auth_token, 'r') as f:
@@ -57,6 +59,7 @@ implementation:
         
         update_data = json.loads(args.update_data_json)
         mapping = json.loads(args.mapping_json)
+        float_keys = json.loads(args.float_keys_json)
 
         headers = {
             'Content-Type': 'application/json',
@@ -127,7 +130,14 @@ implementation:
                             value_to_patch = {key: update_data.get(key) for key in keys if key in update_data}
                         else:
                             if keys in update_data:
-                                value_to_patch = str(update_data.get(keys))
+                                value = update_data.get(keys)
+                                if keys in float_keys:
+                                    try:
+                                        value_to_patch = float(value)
+                                    except (ValueError, TypeError):
+                                        value_to_patch = str(value)
+                                else:
+                                    value_to_patch = str(value)
 
                         if value_to_patch is not None:
                             patch_requests.append({
@@ -171,7 +181,14 @@ implementation:
                             value_to_add = {key: update_data.get(key) for key in keys if key in update_data}
                         else:
                             if keys in update_data:
-                                value_to_add = str(update_data.get(keys))
+                                value = update_data.get(keys)
+                                if keys in float_keys:
+                                    try:
+                                        value_to_add = float(value)
+                                    except (ValueError, TypeError):
+                                        value_to_add = str(value)
+                                else:
+                                    value_to_add = str(value)
 
                         if value_to_add is not None:
                             creation_data[column] = value_to_add
@@ -231,3 +248,5 @@ implementation:
       - {inputPath: bearer_auth_token}
       - --domain
       - {inputValue: domain}
+      - --float_keys_json
+      - {inputValue: float_keys_json}
