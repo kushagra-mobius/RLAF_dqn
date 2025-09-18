@@ -69,15 +69,19 @@ implementation:
             if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
                 print(f"File {file_path} is empty or does not exist. Skipping upload.")
                 return None
-            
+
+            temp_file_path = f"/tmp/{uuid.uuid4()}.pth"
+            with open(file_path, 'rb') as f_in, open(temp_file_path, 'wb') as f_out:
+                f_out.write(f_in.read())
+
             upload_url = f"{domain}/mobius-content-service/v1.0/content/upload?filePathAccess=private&filePath=%2Fdqn%2Fweights%2F"
             
-            print(f"Uploading file from {file_path} to {upload_url}...")
+            print(f"Uploading file from {temp_file_path} to {upload_url}...")
 
             curl_command = [
                 "curl", "--location", upload_url,
                 "--header", f"Authorization: Bearer {token}",
-                "--form", f"file=@{file_path}",
+                "--form", f"file=@{temp_file_path}",
                 "--fail", "--show-error"
             ]
             
@@ -103,6 +107,9 @@ implementation:
             except (json.JSONDecodeError, ValueError) as e:
                 print(f"Error processing the server response: {e}")
                 raise e
+            finally:
+                if os.path.exists(temp_file_path):
+                    os.remove(temp_file_path)
 
         def update_instance(access_token, domain, schema_id, instance_id, updates):
             update_url = f"{domain}/pi-entity-instances-service/v2.0/schemas/{schema_id}/instances"
