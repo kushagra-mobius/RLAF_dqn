@@ -15,6 +15,7 @@ inputs:
   - {name: tasks, type: Dataset}
 outputs:
   - {name: rlaf_output, type: Dataset}
+  - {name: retrained_model, type: Model}
 implementation:
   container:
     image: gurpreetgandhi/nesy-factory:v12
@@ -407,12 +408,21 @@ implementation:
                 # Calculate continual learning metrics
                 cl_metrics = self._calculate_continual_metrics(all_task_performance)
                 
+                # Calculate average metrics across all tasks from the final evaluation
+                final_eval_metrics = [model.eval_step(DataWrapper(tasks[i]), DataWrapper(tasks[i]).test_mask) for i in range(len(tasks))]
+                
+                avg_metrics = {}
+                if final_eval_metrics:
+                    for key in final_eval_metrics[0]:
+                        avg_metrics[key] = np.mean([m[key] for m in final_eval_metrics])
+
                 results = {
                     'strategy': strategy_name,
                     'task_metrics': task_metrics,
                     'all_task_performance': all_task_performance,
                     'continual_metrics': cl_metrics,
-                    'final_model': model
+                    'final_model': model,
+                    'average_eval_metrics': avg_metrics
                 }
                 
                 return results
@@ -602,7 +612,7 @@ implementation:
                     raise RuntimeError(f"DQN Pipeline failed with status {status}")
                 time.sleep(60)
 
-        def model_retraining(action, model_path, data_path, config_path,tasks_path):
+        def model_retraining(action, model_path, data_path, config_path, tasks_path, output_model_path):
             with open(data_path, "rb") as f: data = pickle.load(f)
             with open(config_path, 'r') as f: config = json.load(f)
             with open(tasks_path, "rb") as f: tasks = pickle.load(f)
@@ -615,9 +625,17 @@ implementation:
             trainer = ContinualSTGNNTrainer(config)
             continual_strategies = ['naive']
             
-            results = trainer.train_continual_stgnn(tasks=tasks, strategies=continual_strategies,model=model)
+            results = trainer.train_continual_stgnn(tasks=tasks, strategies=continual_strategies, model=model)
             print(f"{results}")
-            return results
+            
+            # Save the final model
+            final_model = results['naive']['final_model']
+            torch.save(final_model.state_dict(), output_model_path)
+            print(f"Saved retrained model to {output_model_path}")
+
+            # Return the averaged eval metrics and the output path
+            average_eval_metrics = results['naive']['average_eval_metrics']
+            return {"metrics": average_eval_metrics, "model_path": output_model_path}
 
 
         #  Main Execution
@@ -636,6 +654,7 @@ implementation:
             parser.add_argument('--access_token', type=str, required=True)
             parser.add_argument('--tasks', type=str, required=True)
             parser.add_argument('--pipeline_domain', type=str, required=True)
+            parser.add_argument('--retrained_model', type=str, required=True)
             args = parser.parse_args()
 
             with open(args.access_token, 'r') as f:
@@ -698,8 +717,11 @@ implementation:
                 if not action_details:
                     raise ValueError(f"Action with ID {action_id_for_next_pierce} not found in rlaf_actions")
  
-                print(f"DQN pipeline recommended action: {action_details['name']}. Retraining model.")
-                current_metrics = model_retraining(action_details['params'], args.trained_model, args.data_path, args.config, args.tasks)
+                print(f"DQN pipeline recommended action: {action_details}. Retraining model.")
+                retraining_results = model_retraining(
+                    action_details['params'], args.trained_model, args.data_path, args.config, args.tasks, args.retrained_model
+                )
+                current_metrics = retraining_results["metrics"]
 
             os.makedirs(os.path.dirname(args.rlaf_output), exist_ok=True)
             with open(args.rlaf_output, 'w') as f:
@@ -735,3 +757,5 @@ implementation:
       - {inputPath: tasks}
       - --pipeline_domain
       - {inputValue: pipeline_domain}
+      - --retrained_model
+      - {outputPath: retrained_model}
