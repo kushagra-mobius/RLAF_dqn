@@ -612,7 +612,7 @@ implementation:
                     raise RuntimeError(f"DQN Pipeline failed with status {status}")
                 time.sleep(60)
 
-        def model_retraining(action, model_path, data_path, config_path, tasks_path, output_model_path):
+        def model_retraining(action, model_path, data_path, config_path, tasks_path, output_model_path, previous_metrics, dqn_params):
             with open(data_path, "rb") as f: data = pickle.load(f)
             with open(config_path, 'r') as f: config = json.load(f)
             with open(tasks_path, "rb") as f: tasks = pickle.load(f)
@@ -628,13 +628,31 @@ implementation:
             results = trainer.train_continual_stgnn(tasks=tasks, strategies=continual_strategies, model=model)
             print(f"{results}")
             
-            # Save the final model
-            final_model = results['naive']['final_model']
-            torch.save(final_model.state_dict(), output_model_path)
-            print(f"Saved retrained model to {output_model_path}")
-
-            # Return the averaged eval metrics and the output path
             average_eval_metrics = results['naive']['average_eval_metrics']
+            
+            # Compare with previous metrics to decide whether to save the model
+            improvement_score = 0
+            for param in dqn_params:
+                key = param['key']
+                sign = 1 if param['sign'] == '+' else -1
+                if key in average_eval_metrics and key in previous_metrics:
+                    improvement = (average_eval_metrics[key] - previous_metrics[key]) * sign
+                    improvement_score += improvement
+
+            if improvement_score > 0:
+                print(f"Metrics improved (score: {improvement_score:.4f}). Saving model.")
+                # Ensure the output directory exists
+                os.makedirs(os.path.dirname(output_model_path), exist_ok=True)
+                final_model = results['naive']['final_model']
+                torch.save(final_model.state_dict(), output_model_path)
+                print(f"Saved retrained model to {output_model_path}")
+            else:
+                print(f"No improvement in metrics (score: {improvement_score:.4f}). Model not saved.")
+                # Create an empty file to satisfy the output artifact
+                os.makedirs(os.path.dirname(output_model_path), exist_ok=True)
+                with open(output_model_path, 'w') as f:
+                    f.write("Model not saved due to lack of improvement.")
+
             return {"metrics": average_eval_metrics, "model_path": output_model_path}
 
 
@@ -719,7 +737,8 @@ implementation:
  
                 print(f"DQN pipeline recommended action: {action_details}. Retraining model.")
                 retraining_results = model_retraining(
-                    action_details['params'], args.trained_model, args.data_path, args.config, args.tasks, args.retrained_model
+                    action_details['params'], args.trained_model, args.data_path, args.config, args.tasks,
+                    args.retrained_model, previous_state, dqn_params
                 )
                 current_metrics = retraining_results["metrics"]
 
