@@ -616,6 +616,7 @@ implementation:
             continual_strategies = ['naive']
             
             results = trainer.train_continual_stgnn(tasks=tasks, strategies=continual_strategies,model=model)
+            print(f"{results}")
             return results
 
 
