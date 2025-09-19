@@ -9,6 +9,7 @@ inputs:
   - {name: experiment_id, type: String, description: "ID of the Kubeflow experiment"}
   - {name: model_config, type: String, description: "JSON string for model configuration"}
   - {name: model_name, type: String, description: "Name of the model to be used"}
+  - {name: execution_id, type: String, description: "exec id for the run"}
 implementation:
   container:
     image: python:3.8-slim
@@ -39,6 +40,7 @@ implementation:
         parser.add_argument('--experiment_id', type=str, required=True, help='ID of the Kubeflow experiment.')
         parser.add_argument('--model_config', type=str, required=True, help='JSON string for model configuration.')
         parser.add_argument('--model_name', type=str, required=True, help='Name of the model to be used.')
+        parser.add_argument('--execution_id', type=str, required=True, help='exec id for the run.')
         args = parser.parse_args()
 
         args.pickle_cdn_url = args.pickle_cdn_url.replace("$$", "$$$")
@@ -62,7 +64,8 @@ implementation:
                 "model_name" : args.model_name,
                 "model_config" : args.model_config,
                 "dataset_cdn_url": args.pickle_cdn_url,
-                "weigts_cdn_url": args.config_cdn_url
+                "weigts_cdn_url": args.config_cdn_url,
+                "execution_id": args.execution_id
             },
             "version": 1
         }
@@ -118,3 +121,5 @@ implementation:
       - {inputValue: model_config}
       - --model_name
       - {inputValue: model_name}
+      - --execution_id
+      - {inputValue: execution_id}
