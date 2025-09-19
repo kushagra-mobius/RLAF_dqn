@@ -13,7 +13,7 @@ outputs:
 
 implementation:
   container:
-    image: nikhilv215/nesy-factory:v8
+    image: gurpreetgandhi/nesy-factory:v12
     command:
       - sh
       - -c
@@ -41,8 +41,8 @@ implementation:
 
         config = json.loads(args.config_str)
         weight = json.loads(args.weight_in)
-        config['focal_loss_alpha'] = weight['focal_loss_alpha']
-        config['class_weights'] = weight['class_weights']
+        for key, value in weight.items():
+            config[key] = value
         config['model_name'] = args.model_name
         
         model = create_model(args.model_name, config)
