@@ -1,0 +1,58 @@
+name: Load PPI Dataset
+description: Loads the PPI dataset and saves them as a Dataset type.
+outputs:
+  - {name: PPI_data, type: Dataset}
+implementation:
+  container:
+    image: python:3.9
+    command:
+      - sh
+      - -c
+      - |
+        PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet torch torchvision torchaudio torch_geometric pandas || \
+        PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet torch torchvision torchaudio torch_geometric pandas --user
+        exec "$0" "$@"
+      - python3
+      - -u
+      - -c
+      - |
+        import argparse
+        import os
+        import pickle
+        import torch
+        from torch_geometric.datasets import PPI
+
+        class DataContainer:
+            def __init__(self, train_dataset, test_dataset):
+                self.dataset = train_dataset
+                self.test_dataset = test_dataset
+                self.train_mask = None
+                self.test_mask = None
+                
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--PPI_data', type=str, required=True)
+        args = parser.parse_args()
+
+        print(f"Loading PPI dataset")
+
+        # Load splits separately
+        train_dataset = PPI(root='/tmp/PPI', split='train')
+        val_dataset   = PPI(root='/tmp/PPI', split='val')
+        test_dataset  = PPI(root='/tmp/PPI', split='test')
+
+        # Create a container to hold the datasets
+        data = DataContainer(train_dataset, test_dataset)
+        print(f"Dataset loaded successfully.")
+
+
+        # Ensure output directory
+        os.makedirs(os.path.dirname(args.PPI_data), exist_ok=True)
+
+        # Save dataset dict
+        with open(args.PPI_data, "wb") as f:
+            pickle.dump(data, f)
+
+        print(f"Saved PPI dataset to {args.PPI_data}")
+    args:
+      - --PPI_data
+      - {outputPath: PPI_data}
