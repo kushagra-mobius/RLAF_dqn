@@ -74,6 +74,7 @@ implementation:
         print(f"Triggering pipeline at: {trigger_url}")
         print(f"Payload: {json.dumps(payload, indent=2)}")
 
+        import time
         curl_command = [
             "curl",
             "--location", trigger_url,
@@ -83,30 +84,43 @@ implementation:
             "--data", json.dumps(payload),
             "--fail",
             "--show-error",
-            "--retry", "5",
-            "--retry-delay", "60",
-            "--retry-connrefused",
-            "--retry-on", "500,502,503,504",
-            "--max-time", "30"
+            "--connect-timeout", "30"
         ]
 
-        try:
-            process = subprocess.run(
-                curl_command,
-                capture_output=True,
-                check=True
-            )
-            print("Pipeline trigger successful. Raw response:")
-            print(process.stdout.decode('utf-8'))
-        except subprocess.CalledProcessError as e:
-            print("Error executing curl command to trigger pipeline:")
-            print(f"Return code: {e.returncode}")
-            print(f"Output: {e.stdout.decode('utf-8')}")
-            print(f"Error Output: {e.stderr.decode('utf-8')}")
-            raise e
-        except Exception as e:
-            print(f"An unexpected error occurred: {e}")
-            raise e
+        retries = 5
+        retry_delay = 60
+        for i in range(retries):
+            try:
+                process = subprocess.run(
+                    curl_command,
+                    capture_output=True,
+                    check=True,
+                    text=True
+                )
+                print("Pipeline trigger successful. Raw response:")
+                print(process.stdout)
+                break
+            except subprocess.CalledProcessError as e:
+                print(f"Attempt {i+1} failed with return code {e.returncode}.")
+                print(f"Stderr: {e.stderr}")
+                print(f"Stdout: {e.stdout}")
+                
+                if i < retries - 1:
+                    # Check if the error is a 5xx server error to retry
+                    # curl exit code for HTTP errors > 400 is 22
+                    if e.returncode == 22:
+                         print(f"Retrying in {retry_delay} seconds...")
+                         time.sleep(retry_delay)
+                         continue
+                    else:
+                        print("Non-retriable error encountered.")
+                        raise e
+                else:
+                    print("Max retries reached. Failing.")
+                    raise e
+            except Exception as e:
+                print(f"An unexpected error occurred: {e}")
+                raise e
     args:
       - --pickle_cdn_url
       - {inputValue: pickle_cdn_url}

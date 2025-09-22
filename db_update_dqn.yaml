@@ -83,38 +83,50 @@ implementation:
                 "--header", f"Authorization: Bearer {token}",
                 "--form", f"file=@{temp_file_path}",
                 "--fail", "--show-error",
-                "--retry", "5",
-                "--retry-delay", "60",
-                "--retry-connrefused",
-                "--retry-on", "500,502,503,504",
-                "--max-time", "30"
+                "--connect-timeout", "30"
             ]
             
             print(f"Executing curl command: {' '.join(curl_command)}")
-            try:
-                process = subprocess.run(
-                    curl_command, capture_output=True, check=True, text=True
-                )
-                print(f"Curl stdout: {process.stdout}")
-                response_json = json.loads(process.stdout)
-                relative_cdn_url = response_json.get("cdnUrl")
-                if not relative_cdn_url:
-                    raise ValueError("Failed to parse cdnUrl from CDN response.")
-                
-                content_url = f"{cdn_domain}{relative_cdn_url}"
-                print(f"Upload successful. CDN URL: {content_url}")
-                return content_url
-
-            except subprocess.CalledProcessError as e:
-                print(f"Error executing curl command: {e}")
-                print(f"Stderr: {e.stderr}")
-                raise e
-            except (json.JSONDecodeError, ValueError) as e:
-                print(f"Error processing the server response: {e}")
-                raise e
-            finally:
-                if os.path.exists(temp_file_path):
-                    os.remove(temp_file_path)
+            retries = 5
+            retry_delay = 60
+            for i in range(retries):
+                try:
+                    process = subprocess.run(
+                        curl_command, capture_output=True, check=True, text=True
+                    )
+                    print(f"Curl stdout: {process.stdout}")
+                    response_json = json.loads(process.stdout)
+                    relative_cdn_url = response_json.get("cdnUrl")
+                    if not relative_cdn_url:
+                        raise ValueError("Failed to parse cdnUrl from CDN response.")
+                    
+                    content_url = f"{cdn_domain}{relative_cdn_url}"
+                    print(f"Upload successful. CDN URL: {content_url}")
+                    return content_url
+                except subprocess.CalledProcessError as e:
+                    print(f"Attempt {i+1} failed with return code {e.returncode}.")
+                    print(f"Stderr: {e.stderr}")
+                    print(f"Stdout: {e.stdout}")
+                    if i < retries - 1:
+                        if e.returncode == 22: # HTTP error
+                            print(f"Retrying in {retry_delay} seconds...")
+                            time.sleep(retry_delay)
+                            continue
+                        else:
+                            print("Non-retriable error encountered.")
+                            raise e
+                    else:
+                        print("Max retries reached. Failing.")
+                        raise e
+                except (json.JSONDecodeError, ValueError) as e:
+                    print(f"Error processing the server response: {e}")
+                    raise e
+                finally:
+                    if i == retries - 1 and os.path.exists(temp_file_path):
+                        os.remove(temp_file_path)
+            if os.path.exists(temp_file_path):
+                os.remove(temp_file_path)
+            return None
 
         def get_retry_session():
             from requests.adapters import HTTPAdapter
