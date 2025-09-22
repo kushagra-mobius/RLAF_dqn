@@ -21,7 +21,7 @@ implementation:
       - -ec
       - |
         if ! command -v curl &> /dev/null; then
-            echo "curl could not be found, installing..."
+            echo "curl could not be found, installing"
             apt-get update > /dev/null && apt-get install -y curl > /dev/null
         fi
         python3 -m pip install --quiet requests || \
@@ -76,7 +76,7 @@ implementation:
 
             upload_url = f"{domain}/mobius-content-service/v1.0/content/upload?filePathAccess=private&filePath=%2Fdqn%2Fweights%2F"
             
-            print(f"Uploading file from {temp_file_path} to {upload_url}...")
+            print(f"Uploading file from {temp_file_path} to {upload_url}")
 
             curl_command = [
                 "curl", "--location", upload_url,
@@ -109,7 +109,7 @@ implementation:
                     print(f"Stdout: {e.stdout}")
                     if i < retries - 1:
                         if e.returncode == 22: # HTTP error
-                            print(f"Retrying in {retry_delay} seconds...")
+                            print(f"Retrying in {retry_delay} seconds")
                             time.sleep(retry_delay)
                             continue
                         else:
@@ -199,7 +199,7 @@ implementation:
         if new_target_cdn_url:
             update_payload["target_cdn"] = new_target_cdn_url
 
-        print(f"Updating instance {instance_id}...")
+        print(f"Updating instance {instance_id}")
         update_instance(access_token, args.domain, args.schema_id, instance_id, update_payload)
         print(f"Instance {instance_id} updated successfully.")
         print(f"db_update_dqn component finished")
