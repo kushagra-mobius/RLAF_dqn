@@ -82,7 +82,12 @@ implementation:
                 "curl", "--location", upload_url,
                 "--header", f"Authorization: Bearer {token}",
                 "--form", f"file=@{temp_file_path}",
-                "--fail", "--show-error"
+                "--fail", "--show-error",
+                "--retry", "5",
+                "--retry-delay", "60",
+                "--retry-connrefused",
+                "--retry-on", "500,502,503,504",
+                "--max-time", "30"
             ]
             
             print(f"Executing curl command: {' '.join(curl_command)}")
@@ -111,7 +116,22 @@ implementation:
                 if os.path.exists(temp_file_path):
                     os.remove(temp_file_path)
 
+        def get_retry_session():
+            from requests.adapters import HTTPAdapter
+            from urllib3.util.retry import Retry
+            retry_strategy = Retry(
+                total=5,
+                status_forcelist=[500, 502, 503, 504],
+                backoff_factor=1
+            )
+            adapter = HTTPAdapter(max_retries=retry_strategy)
+            session = requests.Session()
+            session.mount("https://", adapter)
+            session.mount("http://", adapter)
+            return session
+
         def update_instance(access_token, domain, schema_id, instance_id, updates):
+            http = get_retry_session()
             update_url = f"{domain}/pi-entity-instances-service/v2.0/schemas/{schema_id}/instances"
             headers = {
                 "Authorization": f"Bearer {access_token}", "Content-Type": "application/json"
@@ -126,7 +146,7 @@ implementation:
                 "partialUpdateRequests": [{"patch": patch_operations}]
             }
             print(f"Update payload: {json.dumps(payload, indent=2)}")
-            response = requests.patch(update_url, headers=headers, json=payload)
+            response = http.patch(update_url, headers=headers, json=payload, timeout=30)
             response.raise_for_status()
             return response.json()
 

@@ -33,6 +33,8 @@ implementation:
         import json
         import argparse
         import requests
+        from requests.adapters import HTTPAdapter
+        from urllib3.util.retry import Retry
         import time
         import pickle
         from typing import List, Dict, Any
@@ -551,8 +553,21 @@ implementation:
                     'forgetting': avg_forgetting,
                     'num_tasks': len(all_task_performance)
                 }
-        #  API/DB Helper Functions 
+        #  API/DB Helper Functions
+        def get_retry_session():
+            retry_strategy = Retry(
+                total=5,
+                status_forcelist=[500, 502, 503, 504],
+                backoff_factor=1
+            )
+            adapter = HTTPAdapter(max_retries=retry_strategy)
+            session = requests.Session()
+            session.mount("https://", adapter)
+            session.mount("http://", adapter)
+            return session
+
         def trigger_pipeline(config, pipeline_domain, dqn_params=None):
+            http = get_retry_session()
             url = f"{pipeline_domain}/bob-service-test/v1.0/pipeline/trigger/ml?pipelineId={config['pipeline_id']}"
             pipeline_params = {"param_json": json.dumps(dqn_params)} if dqn_params else {}
             payload = json.dumps({
@@ -564,29 +579,32 @@ implementation:
                 'accept': 'application/json', 'Authorization': f"Bearer {config['access_token']}",
                 'Content-Type': 'application/json'
             }
-            response = requests.post(url, headers=headers, data=payload)
+            response = http.post(url, headers=headers, data=payload, timeout=30)
             response.raise_for_status()
             print(f"Triggered pipeline. Response: {response.json()}")
             return response.json()['runId']
 
         def get_pipeline_status(config, pipeline_domain):
+            http = get_retry_session()
             url = f"{pipeline_domain}/bob-service-test/v1.0/pipeline/{config['pipeline_id']}/status/ml/{config['run_id']}"
             headers = {'accept': 'application/json', 'Authorization': f"Bearer {config['access_token']}"}
-            response = requests.get(url, headers=headers)
+            response = http.get(url, headers=headers, timeout=30)
             response.raise_for_status()
             pipeline_status = response.json()
             latest_state = pipeline_status['run_details']['state_history'][-1]
             return latest_state['state']
 
         def get_instance(access_token, domain, schema_id, model_id):
+            http = get_retry_session()
             url = f"{domain}/pi-entity-instances-service/v3.0/schemas/{schema_id}/instances/list"
             headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
             payload = {"dbType": "TIDB", "ownedOnly": True, "filter": {"model_id": model_id}}
-            response = requests.post(url, headers=headers, json=payload)
+            response = http.post(url, headers=headers, json=payload, timeout=30)
             response.raise_for_status()
             return response.json()['content'][0]
 
         def update_instance_field(access_token, domain, schema_id, model_id, field, value):
+            http = get_retry_session()
             url = f"{domain}/pi-entity-instances-service/v2.0/schemas/{schema_id}/instances"
             headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
             payload = {
@@ -594,7 +612,7 @@ implementation:
                 "conditionalFilter": {"conditions": [{"field": "model_id", "operator": "EQUAL", "value": model_id}]},
                 "partialUpdateRequests": [{"patch": [{"operation": "REPLACE", "path": field, "value": value}]}]
             }
-            response = requests.patch(url, headers=headers, json=payload)
+            response = http.patch(url, headers=headers, json=payload, timeout=30)
             response.raise_for_status()
             print(f"Successfully updated field '{field}' for model_id '{model_id}'")
 

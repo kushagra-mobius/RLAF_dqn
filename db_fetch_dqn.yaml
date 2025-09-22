@@ -29,6 +29,8 @@ implementation:
       - -c
       - |
         import argparse, json, requests, os
+        from requests.adapters import HTTPAdapter
+        from urllib3.util.retry import Retry
 
         parser = argparse.ArgumentParser()
         parser.add_argument('--access_token', type=str, required=True)
@@ -54,21 +56,35 @@ implementation:
         print(f"  Schema ID: {args.schema_id}")
         print(f"  Model ID: {args.model_id}")
 
+        def get_retry_session():
+            retry_strategy = Retry(
+                total=5,
+                status_forcelist=[500, 502, 503, 504],
+                backoff_factor=1
+            )
+            adapter = HTTPAdapter(max_retries=retry_strategy)
+            session = requests.Session()
+            session.mount("https://", adapter)
+            session.mount("http://", adapter)
+            return session
+
         def get_instances(access_token, domain, schema_id, model_id):
+            http = get_retry_session()
             instances_url = f"{domain}/pi-entity-instances-service/v3.0/schemas/{schema_id}/instances/list"
             headers = {
                 "Authorization": f"Bearer {access_token}",
                 "Content-Type": "application/json"
             }
             payload = {"dbType": "TIDB", "ownedOnly": True, "filter": {"model_id": model_id}}
-            response = requests.post(instances_url, headers=headers, json=payload)
+            response = http.post(instances_url, headers=headers, json=payload, timeout=30)
             response.raise_for_status()
             return response.json()
 
         def download_file(url, output_path):
+            http = get_retry_session()
             print(f"Downloading from {url}...")
             try:
-                response = requests.get(url, stream=True)
+                response = http.get(url, stream=True, timeout=30)
                 response.raise_for_status()
                 os.makedirs(os.path.dirname(output_path), exist_ok=True)
                 with open(output_path, 'wb') as f:

@@ -65,7 +65,8 @@ implementation:
                 "model_config" : args.model_config,
                 "dataset_cdn_url": args.pickle_cdn_url,
                 "weigts_cdn_url": args.config_cdn_url,
-                "execution_id": args.execution_id
+                "execution_id": args.execution_id,
+                "experiment_id": args.experiment_id
             },
             "version": 1
         }
@@ -83,8 +84,10 @@ implementation:
             "--fail",
             "--show-error",
             "--retry", "5",
-            "--retry-delay", "10",
-            "--max-time", "300"
+            "--retry-delay", "60",
+            "--retry-connrefused",
+            "--retry-on", "500,502,503,504",
+            "--max-time", "30"
         ]
 
         try:
