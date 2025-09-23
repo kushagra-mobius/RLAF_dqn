@@ -69,9 +69,10 @@ implementation:
         }
 
         retry_strategy = Retry(
-            total=5,
-            status_forcelist=[500, 502, 503, 504],
-            backoff_factor=1  # This will sleep for [0, 2, 4, 8, 16] seconds
+            total=3,
+            status_forcelist=[408, 500, 502, 503, 504],
+            method_whitelist=["HEAD", "GET", "PUT", "POST", "DELETE", "OPTIONS", "TRACE"],
+            backoff_factor=1
         )
         adapter = HTTPAdapter(max_retries=retry_strategy)
         http = requests.Session()
@@ -101,7 +102,7 @@ implementation:
             print(f"Request Payload: {json.dumps(create_payload, indent=2)}")
 
             try:
-                response = http.post(create_url, headers=headers, data=json.dumps(create_payload), timeout=30)
+                response = http.post(create_url, headers=headers, data=json.dumps(create_payload), timeout=60)
                 response.raise_for_status()
                 print("Successfully created multiple model instances.")
                 print(f"Response: {response.json()}")
@@ -129,7 +130,7 @@ implementation:
             print(f"Request Payload: {json.dumps(check_payload, indent=2)}")
 
             try:
-                response = http.post(check_url, headers=headers, data=json.dumps(check_payload), timeout=30)
+                response = http.post(check_url, headers=headers, data=json.dumps(check_payload), timeout=60)
                 response.raise_for_status()
                 response_data = response.json()
                 
@@ -181,7 +182,7 @@ implementation:
                     print(f"Request Headers: {json.dumps(headers)}")
                     print(f"Request Payload: {json.dumps(update_payload, indent=2)}")
                     
-                    response = http.patch(update_url, headers=headers, data=json.dumps(update_payload), timeout=30)
+                    response = http.patch(update_url, headers=headers, data=json.dumps(update_payload), timeout=60)
                     response.raise_for_status()
                     print("Successfully updated the model instance.")
                 else:
@@ -224,7 +225,7 @@ implementation:
                     print(f"Request Headers: {json.dumps(headers)}")
                     print(f"Request Payload: {json.dumps(create_payload, indent=2)}")
                     
-                    response = http.post(create_url, headers=headers, data=json.dumps(create_payload), timeout=30)
+                    response = http.post(create_url, headers=headers, data=json.dumps(create_payload), timeout=60)
                     if response.status_code >= 400:
                         print(f"Error: {response.status_code} {response.reason}")
                         print(f"Response Content: {response.text}")
