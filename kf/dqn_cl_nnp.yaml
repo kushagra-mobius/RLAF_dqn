@@ -615,7 +615,7 @@ implementation:
             print("cURL command for update_instance_field")
             headers_str = " ".join([f"-H '{k}: {v}'" for k, v in headers.items()])
             print(f"curl -X PATCH '{url}' {headers_str} -d '{json.dumps(payload)}'")    
-            response = http.patch(url, headers=headers, json=payload, timeout=30)
+            response = http.patch(url, headers=headers, data=json.dumps(payload), timeout=30)
             response.raise_for_status()
             print(f"Successfully updated field '{field}' for model_id '{model_id}'")
 
