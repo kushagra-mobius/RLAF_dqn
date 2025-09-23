@@ -610,7 +610,7 @@ implementation:
             payload = {
                 "dbType": "TIDB",
                 "conditionalFilter": {"conditions": [{"field": "model_id", "operator": "EQUAL", "value": model_id}]},
-                "partialUpdateRequests": [{"patch": [{"operation": "REPLACE", "path": f"/{field}", "value": value}]}]
+                "partialUpdateRequests": [{"patch": [{"operation": "REPLACE", "path": f"{field}", "value": value}]}]
             }
             print("cURL command for update_instance_field")
             headers_str = " ".join([f"-H '{k}: {v}'" for k, v in headers.items()])
