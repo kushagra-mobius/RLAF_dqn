@@ -591,6 +591,7 @@ implementation:
             response = http.get(url, headers=headers, timeout=30)
             response.raise_for_status()
             pipeline_status = response.json()
+            print(f"Full response from get_pipeline_status: {pipeline_status}")
             latest_state = pipeline_status['run_details']['state_history'][-1]
             return latest_state['state']
 
@@ -601,6 +602,7 @@ implementation:
             payload = {"dbType": "TIDB", "ownedOnly": True, "filter": {"model_id": model_id}}
             response = http.post(url, headers=headers, json=payload, timeout=30)
             response.raise_for_status()
+            print(f"Full response from get_instance: {response.json()}")
             return response.json()['content'][0]
 
         def update_instance_field(access_token, domain, schema_id, model_id, field, value):
@@ -617,6 +619,7 @@ implementation:
             print(f"curl -X PATCH '{url}' {headers_str} -d '{json.dumps(payload)}'")    
             response = http.patch(url, headers=headers, data=json.dumps(payload), timeout=30)
             response.raise_for_status()
+            print(f"Full response from update_instance_field: {response.json()}")
             print(f"Successfully updated field '{field}' for model_id '{model_id}'")
 
         #  Core Logic 
