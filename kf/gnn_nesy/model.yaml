@@ -52,7 +52,7 @@ implementation:
         print(f"Model Info: {model_info}")
 
         # Combine config and model_info
-        combined_info = {**config, **model_info}
+        combined_info = {**model_info,**config}
 
         os.makedirs(os.path.dirname(args.model_out), exist_ok=True)
         os.makedirs(os.path.dirname(args.config_updated), exist_ok=True)
