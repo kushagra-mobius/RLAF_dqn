@@ -43,13 +43,13 @@ outputs:
     type: String
 implementation:
   container:
-    image: python:3.9
+    image: gurpreetgandhi/nesy-factory:v12
     command:
       - sh
       - -c
       - |
-        python3 -m pip install --quiet torch numpy || \
-        python3 -m pip install --quiet torch numpy --user
+        python3 -m pip install --quiet numpy || \
+        python3 -m pip install --quiet numpy --user
         exec "$0" "$@"
       - python3
       - -u
