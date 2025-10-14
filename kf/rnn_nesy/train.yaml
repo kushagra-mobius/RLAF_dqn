@@ -1,0 +1,77 @@
+name: Train Model
+description: Trains the RNN model.
+inputs:
+  - {name: model, type: Model}
+  - {name: train_loader, type: Dataset}
+  - {name: config, type: String}
+outputs:
+  - {name: trained_model, type: Model}
+implementation:
+  container:
+    image: python:3.9
+    command:
+      - sh
+      - -c
+      - |
+        PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet torch scikit-learn || \
+        PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet torch scikit-learn --user
+        exec "$0" "$@"
+      - python3
+      - -u
+      - -c
+      - |
+        import argparse
+        import json
+        import os
+        import pickle
+        import sys
+        import torch
+
+        # Add the project root to the Python path
+        sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+        
+        from src.nesy_factory.RNNs.simple_rnn import SimpleRNN
+        from src.nesy_factory.RNNs.gru import GRU
+
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--model', type=str, required=True)
+        parser.add_argument('--train_loader', type=str, required=True)
+        parser.add_argument('--config', type=str, required=True)
+        parser.add_argument('--trained_model', type=str, required=True)
+        args = parser.parse_args()
+
+        with open(args.config, 'r') as f:
+            config = json.load(f)
+
+        with open(args.model, 'rb') as f:
+            model_obj = pickle.load(f)
+
+        with open(args.train_loader, 'rb') as f:
+            train_loader_obj = pickle.load(f)
+
+        print("--- Starting Model Training ---")
+        for epoch in range(config['epochs']):
+            model_obj.train()
+            total_train_loss = 0
+            for inputs, labels in train_loader_obj:
+                loss = model_obj.train_step((inputs, labels))
+                total_train_loss += loss
+            
+            avg_train_loss = total_train_loss / len(train_loader_obj)
+            print(f"Epoch {epoch+1:02d}/{config['epochs']} | Train Loss: {avg_train_loss:.6f}")
+        
+        print("--- Finished Model Training ---")
+
+        os.makedirs(os.path.dirname(args.trained_model), exist_ok=True)
+        torch.save(model_obj.state_dict(), args.trained_model)
+
+        print(f"Saved trained model to {args.trained_model}")
+    args:
+      - --model
+      - {inputPath: model}
+      - --train_loader
+      - {inputPath: train_loader}
+      - --config
+      - {inputValue: config}
+      - --trained_model
+      - {outputPath: trained_model}

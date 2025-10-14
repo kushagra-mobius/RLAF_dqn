@@ -1,0 +1,87 @@
+name: Evaluate Model
+description: Evaluates the trained RNN model.
+inputs:
+  - {name: trained_model, type: Model}
+  - {name: test_loader, type: Dataset}
+  - {name: config, type: String}
+outputs:
+  - {name: eval_metrics, type: Metrics}
+implementation:
+  container:
+    image: python:3.9
+    command:
+      - sh
+      - -c
+      - |
+        PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet torch scikit-learn || \
+        PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet torch scikit-learn --user
+        exec "$0" "$@"
+      - python3
+      - -u
+      - -c
+      - |
+        import argparse
+        import json
+        import os
+        import pickle
+        import sys
+        import torch
+
+        # Add the project root to the Python path
+        sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+        
+        from src.nesy_factory.RNNs.simple_rnn import SimpleRNN
+        from src.nesy_factory.RNNs.gru import GRU
+
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--trained_model', type=str, required=True)
+        parser.add_argument('--test_loader', type=str, required=True)
+        parser.add_argument('--config', type=str, required=True)
+        parser.add_argument('--eval_metrics', type=str, required=True)
+        args = parser.parse_args()
+
+        with open(args.config, 'r') as f:
+            config = json.load(f)
+
+        with open(args.test_loader, 'rb') as f:
+            test_loader_obj = pickle.load(f)
+
+        model_config = {
+            'input_dim': len(config['feature_columns']),
+            'hidden_dim': config['hidden_dim'],
+            'output_dim': 1,
+            'num_layers': config['num_layers'],
+            'dropout': config['dropout'],
+            'optimizer': 'adam',
+            'learning_rate': config['learning_rate'],
+            'epochs': config['epochs'],
+            'loss_function': config['loss_function']
+        }
+
+        if config['model_type'] == 'SimpleRNN':
+            model_obj = SimpleRNN(model_config)
+        elif config['model_type'] == 'GRU':
+            model_obj = GRU(model_config)
+        else:
+            raise ValueError("Invalid model type specified")
+
+        model_obj.load_state_dict(torch.load(args.trained_model))
+
+        print("--- Starting Final Evaluation ---")
+        metrics = model_obj.eval_step(test_loader_obj)
+        print("--- Finished Final Evaluation ---")
+
+        os.makedirs(os.path.dirname(args.eval_metrics), exist_ok=True)
+        with open(args.eval_metrics, "w") as f:
+            json.dump(metrics, f)
+
+        print(f"Saved evaluation metrics to {args.eval_metrics}")
+    args:
+      - --trained_model
+      - {inputPath: trained_model}
+      - --test_loader
+      - {inputPath: test_loader}
+      - --config
+      - {inputValue: config}
+      - --eval_metrics
+      - {outputPath: eval_metrics}

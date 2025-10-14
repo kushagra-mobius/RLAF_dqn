@@ -1,0 +1,124 @@
+name: Preprocess Data
+description: Processes raw data and creates training and testing dataloaders.
+inputs:
+  - {name: json_data, type: Dataset}
+  - {name: config, type: String}
+outputs:
+  - {name: train_loader, type: Dataset}
+  - {name: test_loader, type: Dataset}
+implementation:
+  container:
+    image: python:3.9
+    command:
+      - sh
+      - -c
+      - |
+        PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet torch scikit-learn pandas numpy || \
+        PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet torch scikit-learn pandas numpy --user
+        exec "$0" "$@"
+      - python3
+      - -u
+      - -c
+      - |
+        import argparse
+        import json
+        import os
+        import pickle
+        import numpy as np
+        import pandas as pd
+        import torch
+        from sklearn.preprocessing import MinMaxScaler
+        from torch.utils.data import TensorDataset, DataLoader
+
+        def process_total_metrics_data(json_data):
+            """Processes the Total Metrics data, extracting nested fields."""
+            records = []
+            for item in json_data:
+                record = {
+                    'totalallocatable.cpu': float(item['totalallocatable']['cpu'].replace('c', '')),
+                    'totalallocatable.memory': float(item['totalallocatable']['memory'].replace('TB', '')) * 1e12,
+                    'totalallocatable.storage': float(item['totalallocatable']['storage'].replace('TB', '')) * 1e12,
+                    'timestamp': item['timestamp']
+                }
+                records.append(record)
+            df = pd.DataFrame(records)
+            df['timestamp'] = pd.to_datetime(df['timestamp'])
+            df = df.sort_values(by='timestamp')
+            return df
+
+        def create_sequences_with_labels(data, labels, seq_length):
+            X, y = [], []
+            for i in range(len(data) - seq_length):
+                X.append(data[i:i+seq_length])
+                y.append(labels[i+seq_length-1])
+            return np.array(X), np.array(y)
+
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--json_data', type=str, required=True)
+        parser.add_argument('--config', type=str, required=True)
+        parser.add_argument('--train_loader', type=str, required=True)
+        parser.add_argument('--test_loader', type=str, required=True)
+        args = parser.parse_args()
+
+        with open(args.config, 'r') as f:
+            config = json.load(f)
+
+        with open(args.json_data, 'rb') as f:
+            json_data = pickle.load(f)
+
+        if config['use_case'] == "Fine-Grained Build Cost Metering Loops":
+            df = process_total_metrics_data(json_data)
+        else:
+            df = pd.DataFrame(json_data)
+
+        all_columns = config['feature_columns'] + [config['target_column']]
+        for col in all_columns:
+            if '.' not in col:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+        df.dropna(subset=all_columns, inplace=True)
+
+        features = config['feature_columns']
+        scaler = MinMaxScaler()
+        data_for_sequencing = scaler.fit_transform(df[features].astype(float).values)
+        y_labels = df[config['target_column']].astype(float).values
+
+        X, y = create_sequences_with_labels(data_for_sequencing, y_labels, config['seq_length'])
+        
+        permutation = np.random.permutation(len(X))
+        X = X[permutation]
+        y = y[permutation]
+
+        train_size = int(len(X) * 0.8)
+        X_train, X_test = X[:train_size], X[train_size:]
+        y_train, y_test = y[:train_size], y[train_size:]
+
+        X_train = torch.tensor(X_train, dtype=torch.float32)
+        y_train = torch.tensor(y_train, dtype=torch.float32).unsqueeze(1)
+        X_test = torch.tensor(X_test, dtype=torch.float32)
+        y_test = torch.tensor(y_test, dtype=torch.float32).unsqueeze(1)
+
+        train_dataset = TensorDataset(X_train, y_train)
+        test_dataset = TensorDataset(X_test, y_test)
+
+        train_loader_obj = DataLoader(train_dataset, batch_size=32, shuffle=True)
+        test_loader_obj = DataLoader(test_dataset, batch_size=32, shuffle=False)
+
+        os.makedirs(os.path.dirname(args.train_loader), exist_ok=True)
+        with open(args.train_loader, "wb") as f:
+            pickle.dump(train_loader_obj, f)
+
+        os.makedirs(os.path.dirname(args.test_loader), exist_ok=True)
+        with open(args.test_loader, "wb") as f:
+            pickle.dump(test_loader_obj, f)
+
+        print(f"Saved train_loader to {args.train_loader}")
+        print(f"Saved test_loader to {args.test_loader}")
+    args:
+      - --json_data
+      - {inputPath: json_data}
+      - --config
+      - {inputValue: config}
+      - --train_loader
+      - {outputPath: train_loader}
+      - --test_loader
+      - {outputPath: test_loader}

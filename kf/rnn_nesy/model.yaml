@@ -1,0 +1,69 @@
+name: Initialize Model
+description: Initializes the RNN model.
+inputs:
+  - {name: config, type: String}
+outputs:
+  - {name: model, type: Model}
+implementation:
+  container:
+    image: python:3.9
+    command:
+      - sh
+      - -c
+      - |
+        PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet torch scikit-learn || \
+        PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet torch scikit-learn --user
+        exec "$0" "$@"
+      - python3
+      - -u
+      - -c
+      - |
+        import argparse
+        import json
+        import os
+        import pickle
+        import sys
+        
+        # Add the project root to the Python path
+        sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+        
+        from src.nesy_factory.RNNs.simple_rnn import SimpleRNN
+        from src.nesy_factory.RNNs.gru import GRU
+
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--config', type=str, required=True)
+        parser.add_argument('--model', type=str, required=True)
+        args = parser.parse_args()
+
+        with open(args.config, 'r') as f:
+            config = json.load(f)
+
+        model_config = {
+            'input_dim': len(config['feature_columns']),
+            'hidden_dim': config['hidden_dim'],
+            'output_dim': 1,
+            'num_layers': config['num_layers'],
+            'dropout': config['dropout'],
+            'optimizer': 'adam',
+            'learning_rate': config['learning_rate'],
+            'epochs': config['epochs'],
+            'loss_function': config['loss_function']
+        }
+
+        if config['model_type'] == 'SimpleRNN':
+            model_obj = SimpleRNN(model_config)
+        elif config['model_type'] == 'GRU':
+            model_obj = GRU(model_config)
+        else:
+            raise ValueError("Invalid model type specified")
+
+        os.makedirs(os.path.dirname(args.model), exist_ok=True)
+        with open(args.model, "wb") as f:
+            pickle.dump(model_obj, f)
+
+        print(f"Saved model to {args.model}")
+    args:
+      - --config
+      - {inputValue: config}
+      - --model
+      - {outputPath: model}
