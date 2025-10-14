@@ -31,7 +31,7 @@ implementation:
         parser.add_argument('--model', type=str, required=True)
         args = parser.parse_args()
 
-        config=args.config
+        config = json.loads(args.config)
 
         model_config = {
             'input_dim': len(config['feature_columns']),
