@@ -57,7 +57,7 @@ implementation:
         parser.add_argument('--test_loader', type=str, required=True)
         args = parser.parse_args()
 
-        config=args.config
+        config = json.loads(args.config)
 
         with open(args.json_data, 'rb') as f:
             json_data = pickle.load(f)
