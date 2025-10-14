@@ -8,13 +8,11 @@ outputs:
   - {name: eval_metrics, type: Metrics}
 implementation:
   container:
-    image: python:3.9
+    image: kushagra4761/nesy-factory-library
     command:
       - sh
       - -c
       - |
-        PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet torch scikit-learn || \
-        PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet torch scikit-learn --user
         exec "$0" "$@"
       - python3
       - -u
@@ -27,11 +25,9 @@ implementation:
         import sys
         import torch
 
-        # Add the project root to the Python path
-        sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
         
-        from src.nesy_factory.RNNs.simple_rnn import SimpleRNN
-        from src.nesy_factory.RNNs.gru import GRU
+        from nesy_factory.RNNs.simple_rnn import SimpleRNN
+        from nesy_factory.RNNs.gru import GRU
 
         parser = argparse.ArgumentParser()
         parser.add_argument('--trained_model', type=str, required=True)
@@ -40,8 +36,7 @@ implementation:
         parser.add_argument('--eval_metrics', type=str, required=True)
         args = parser.parse_args()
 
-        with open(args.config, 'r') as f:
-            config = json.load(f)
+        config = json.loads(args.config)
 
         with open(args.test_loader, 'rb') as f:
             test_loader_obj = pickle.load(f)
