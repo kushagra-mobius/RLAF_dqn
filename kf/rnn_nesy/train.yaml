@@ -8,13 +8,11 @@ outputs:
   - {name: trained_model, type: Model}
 implementation:
   container:
-    image: python:3.9
+    image: sanram00/torch-fix:v1
     command:
       - sh
       - -c
       - |
-        PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet torch scikit-learn || \
-        PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet torch scikit-learn --user
         exec "$0" "$@"
       - python3
       - -u
@@ -26,12 +24,9 @@ implementation:
         import pickle
         import sys
         import torch
-
-        # Add the project root to the Python path
-        sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
         
-        from src.nesy_factory.RNNs.simple_rnn import SimpleRNN
-        from src.nesy_factory.RNNs.gru import GRU
+        from nesy_factory.RNNs.simple_rnn import SimpleRNN
+        from nesy_factory.RNNs.gru import GRU
 
         parser = argparse.ArgumentParser()
         parser.add_argument('--model', type=str, required=True)
@@ -40,8 +35,7 @@ implementation:
         parser.add_argument('--trained_model', type=str, required=True)
         args = parser.parse_args()
 
-        with open(args.config, 'r') as f:
-            config = json.load(f)
+        config=args.config
 
         with open(args.model, 'rb') as f:
             model_obj = pickle.load(f)
@@ -49,7 +43,7 @@ implementation:
         with open(args.train_loader, 'rb') as f:
             train_loader_obj = pickle.load(f)
 
-        print("--- Starting Model Training ---")
+        print("Starting Model Training")
         for epoch in range(config['epochs']):
             model_obj.train()
             total_train_loss = 0
@@ -60,7 +54,7 @@ implementation:
             avg_train_loss = total_train_loss / len(train_loader_obj)
             print(f"Epoch {epoch+1:02d}/{config['epochs']} | Train Loss: {avg_train_loss:.6f}")
         
-        print("--- Finished Model Training ---")
+        print("Finished Model Training ")
 
         os.makedirs(os.path.dirname(args.trained_model), exist_ok=True)
         torch.save(model_obj.state_dict(), args.trained_model)
