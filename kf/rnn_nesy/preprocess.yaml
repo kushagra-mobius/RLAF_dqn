@@ -8,13 +8,11 @@ outputs:
   - {name: test_loader, type: Dataset}
 implementation:
   container:
-    image: python:3.9
+    image: nikhilv215/nesy-factory:v22
     command:
       - sh
       - -c
       - |
-        PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet torch scikit-learn pandas numpy || \
-        PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet torch scikit-learn pandas numpy --user
         exec "$0" "$@"
       - python3
       - -u
@@ -31,7 +29,6 @@ implementation:
         from torch.utils.data import TensorDataset, DataLoader
 
         def process_total_metrics_data(json_data):
-            """Processes the Total Metrics data, extracting nested fields."""
             records = []
             for item in json_data:
                 record = {
@@ -60,22 +57,24 @@ implementation:
         parser.add_argument('--test_loader', type=str, required=True)
         args = parser.parse_args()
 
-        with open(args.config, 'r') as f:
-            config = json.load(f)
+        config=args.config
 
         with open(args.json_data, 'rb') as f:
             json_data = pickle.load(f)
+        print(f"Loaded json_data. Length: {len(json_data)}")
 
         if config['use_case'] == "Fine-Grained Build Cost Metering Loops":
             df = process_total_metrics_data(json_data)
         else:
             df = pd.DataFrame(json_data)
+        print(f"Created DataFrame. Shape: {df.shape}")
 
         all_columns = config['feature_columns'] + [config['target_column']]
         for col in all_columns:
             if '.' not in col:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
         df.dropna(subset=all_columns, inplace=True)
+        print(f"DataFrame shape after dropping NA: {df.shape}")
 
         features = config['feature_columns']
         scaler = MinMaxScaler()
@@ -83,6 +82,7 @@ implementation:
         y_labels = df[config['target_column']].astype(float).values
 
         X, y = create_sequences_with_labels(data_for_sequencing, y_labels, config['seq_length'])
+        print(f"Created sequences. X shape: {X.shape}, y shape: {y.shape}")
         
         permutation = np.random.permutation(len(X))
         X = X[permutation]
@@ -91,6 +91,7 @@ implementation:
         train_size = int(len(X) * 0.8)
         X_train, X_test = X[:train_size], X[train_size:]
         y_train, y_test = y[:train_size], y[train_size:]
+        print(f"Train data shape: {X_train.shape}, Test data shape: {X_test.shape}")
 
         X_train = torch.tensor(X_train, dtype=torch.float32)
         y_train = torch.tensor(y_train, dtype=torch.float32).unsqueeze(1)
