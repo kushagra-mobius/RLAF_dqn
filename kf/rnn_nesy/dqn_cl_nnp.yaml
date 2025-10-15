@@ -370,9 +370,8 @@ implementation:
                     raise RuntimeError(f"DQN Pipeline failed with status {status}")
                 time.sleep(60)
 
-        def model_retraining(action, model_path, data_path, config_path, tasks_path, output_model_path, previous_metrics, dqn_params):
+        def model_retraining(action, model_path, data_path, config, tasks_path, output_model_path, previous_metrics, dqn_params):
             with open(data_path, "rb") as f: data = pickle.load(f)
-            with open(config_path, 'r') as f: config = json.load(f)
             with open(tasks_path, "rb") as f: tasks = pickle.load(f)
             
             config.update(action)
@@ -512,7 +511,7 @@ implementation:
  
                 print(f"DQN pipeline recommended action: {action_details}. Retraining model.")
                 retraining_results = model_retraining(
-                    action_details['params'], args.trained_model, args.data_path, args.config, args.tasks,
+                    action_details['params'], args.trained_model, args.data_path, json.loads(args.config), args.tasks,
                     args.retrained_model, previous_state, dqn_params
                 )
                 current_metrics = retraining_results["metrics"]
@@ -534,7 +533,7 @@ implementation:
       - --data_path
       - {inputPath: data_path}
       - --config
-      - {inputPath: config}
+      - {inputValue: config}
       - --domain
       - {inputValue: domain}
       - --schema_id
