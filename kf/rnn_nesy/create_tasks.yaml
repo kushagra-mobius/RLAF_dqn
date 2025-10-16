@@ -78,8 +78,7 @@ implementation:
             parser.add_argument('--tasks', type=str, required=True)
             args = parser.parse_args()
 
-            with open(args.config, 'r') as f:
-                config = json.load(f)
+            config = json.loads(args.config)
 
             with open(args.train_loader, 'rb') as f:
                 train_loader = pickle.load(f)
