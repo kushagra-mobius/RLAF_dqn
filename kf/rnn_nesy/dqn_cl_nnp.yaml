@@ -315,7 +315,7 @@ implementation:
             }
             response = http.post(url, headers=headers, data=payload, timeout=30)
             response.raise_for_status()
-            print(f"Triggered pipeline. Response: {response.json()}")
+            print(f"Triggered pipeline. Status Code: {response.status_code}, Response: {response.json()}")
             return response.json()['runId']
 
         def get_pipeline_status(config, pipeline_domain):
@@ -325,7 +325,7 @@ implementation:
             response = http.get(url, headers=headers, timeout=30)
             response.raise_for_status()
             pipeline_status = response.json()
-            print(f"Full response from get_pipeline_status: {pipeline_status}")
+            print(f"Get pipeline status. Status Code: {response.status_code}, Full response: {pipeline_status}")
             latest_state = pipeline_status['run_details']['state_history'][-1]
             return latest_state['state']
 
@@ -336,7 +336,7 @@ implementation:
             payload = {"dbType": "TIDB", "ownedOnly": True, "filter": {"model_id": model_id}}
             response = http.post(url, headers=headers, json=payload, timeout=30)
             response.raise_for_status()
-            print(f"Full response from get_instance: {response.json()}")
+            print(f"Get instance. Status Code: {response.status_code}, Full response: {response.json()}")
             return response.json()['content'][0]
 
         def update_instance_field(access_token, domain, schema_id, model_id, field, value):
@@ -350,10 +350,10 @@ implementation:
             }
             print("cURL command for update_instance_field")
             headers_str = " ".join([f"-H '{k}: {v}'" for k, v in headers.items()])
-            print(f"curl -X PATCH '{url}' {headers_str} -d '{json.dumps(payload)}'")    
+            print(f"curl -X PATCH '{url}' {headers_str} -d '{json.dumps(payload)}'")
             response = http.patch(url, headers=headers, data=json.dumps(payload), timeout=30)
             response.raise_for_status()
-            print(f"Full response from update_instance_field: {response.json()}")
+            print(f"Update instance field. Status Code: {response.status_code}, Full response: {response.json()}")
             print(f"Successfully updated field '{field}' for model_id '{model_id}'")
 
         #  Core Logic 
