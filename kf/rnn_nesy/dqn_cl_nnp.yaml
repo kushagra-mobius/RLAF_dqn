@@ -313,6 +313,7 @@ implementation:
                 'accept': 'application/json', 'Authorization': f"Bearer {config['access_token']}",
                 'Content-Type': 'application/json'
             }
+            print(f"Trigger pipeline request URL: {url}, Headers: {headers}, Payload: {payload}")
             response = http.post(url, headers=headers, data=payload, timeout=30)
             response.raise_for_status()
             print(f"Triggered pipeline. Status Code: {response.status_code}, Response: {response.json()}")
@@ -322,6 +323,7 @@ implementation:
             http = get_retry_session()
             url = f"{pipeline_domain}/bob-service-test/v1.0/pipeline/{config['pipeline_id']}/status/ml/{config['run_id']}"
             headers = {'accept': 'application/json', 'Authorization': f"Bearer {config['access_token']}"}
+            print(f"Get pipeline status request URL: {url}, Headers: {headers}")
             response = http.get(url, headers=headers, timeout=30)
             response.raise_for_status()
             pipeline_status = response.json()
@@ -334,6 +336,7 @@ implementation:
             url = f"{domain}/pi-entity-instances-service/v3.0/schemas/{schema_id}/instances/list"
             headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
             payload = {"dbType": "TIDB", "ownedOnly": True, "filter": {"model_id": model_id}}
+            print(f"Get instance request URL: {url}, Headers: {headers}, Payload: {payload}")
             response = http.post(url, headers=headers, json=payload, timeout=30)
             response.raise_for_status()
             print(f"Get instance. Status Code: {response.status_code}, Full response: {response.json()}")
@@ -348,7 +351,7 @@ implementation:
                 "conditionalFilter": {"conditions": [{"field": "model_id", "operator": "EQUAL", "value": model_id}]},
                 "partialUpdateRequests": [{"patch": [{"operation": "REPLACE", "path": f"{field}", "value": value}]}]
             }
-            print("cURL command for update_instance_field")
+            print(f"Update instance field request - URL: {url}, Headers: {headers}, Payload: {json.dumps(payload)}")
             headers_str = " ".join([f"-H '{k}: {v}'" for k, v in headers.items()])
             print(f"curl -X PATCH '{url}' {headers_str} -d '{json.dumps(payload)}'")
             response = http.patch(url, headers=headers, data=json.dumps(payload), timeout=30)
