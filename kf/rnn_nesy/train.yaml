@@ -6,6 +6,7 @@ inputs:
   - {name: config, type: String}
 outputs:
   - {name: trained_model, type: Model}
+  - {name: epoch_loss, type: String}
 implementation:
   container:
     image: kushagra4761/nesy-factory-library
@@ -33,6 +34,7 @@ implementation:
         parser.add_argument('--train_loader', type=str, required=True)
         parser.add_argument('--config', type=str, required=True)
         parser.add_argument('--trained_model', type=str, required=True)
+        parser.add_argument('--epoch_loss', type=str, required=True)
         args = parser.parse_args()
 
         config = json.loads(args.config)
@@ -44,6 +46,7 @@ implementation:
             train_loader_obj = pickle.load(f)
 
         print("Starting Model Training")
+        epoch_loss_data = []
         for epoch in range(config['epochs']):
             model_obj.train()
             total_train_loss = 0
@@ -53,7 +56,13 @@ implementation:
             
             avg_train_loss = total_train_loss / len(train_loader_obj)
             print(f"Epoch {epoch+1:02d}/{config['epochs']} | Train Loss: {avg_train_loss:.6f}")
+            epoch_loss_data.append({'epoch': epoch, 'loss': avg_train_loss})
         
+        output_dir_epoch_loss = os.path.dirname(args.epoch_loss)
+        if output_dir_epoch_loss and not os.path.exists(output_dir_epoch_loss):
+            os.makedirs(output_dir_epoch_loss, exist_ok=True)
+        with open(args.epoch_loss, 'w') as f:
+            f.write(json.dumps(epoch_loss_data))
         print("Finished Model Training ")
 
         os.makedirs(os.path.dirname(args.trained_model), exist_ok=True)
@@ -69,3 +78,5 @@ implementation:
       - {inputValue: config}
       - --trained_model
       - {outputPath: trained_model}
+      - --epoch_loss
+      - {outputPath: epoch_loss}
