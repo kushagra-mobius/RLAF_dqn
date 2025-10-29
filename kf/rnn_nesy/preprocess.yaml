@@ -6,6 +6,8 @@ inputs:
 outputs:
   - {name: train_loader, type: Dataset}
   - {name: test_loader, type: Dataset}
+  - {name: input_dim, type: String}
+  - {name: processed_data, type: Dataset}
 implementation:
   container:
     image: nikhilv215/nesy-factory:v22
@@ -55,6 +57,8 @@ implementation:
         parser.add_argument('--config', type=str, required=True)
         parser.add_argument('--train_loader', type=str, required=True)
         parser.add_argument('--test_loader', type=str, required=True)
+        parser.add_argument('--input_dim', type=str, required=True)
+        parser.add_argument('--processed_data', type=str, required=True)
         args = parser.parse_args()
 
         config = json.loads(args.config)
@@ -112,8 +116,26 @@ implementation:
         with open(args.test_loader, "wb") as f:
             pickle.dump(test_loader_obj, f)
 
+        input_dim = X_train.shape[2]
+        os.makedirs(os.path.dirname(args.input_dim), exist_ok=True)
+        with open(args.input_dim, "w") as f:
+            f.write(str(input_dim))
+
+        class DataWrapper:
+            def __init__(self, train_loader, test_loader, input_dim):
+                self.train_loader = train_loader
+                self.test_loader = test_loader
+                self.input_dim = input_dim
+        
+        data_to_save = DataWrapper(train_loader_obj, test_loader_obj, input_dim)
+        os.makedirs(os.path.dirname(args.processed_data), exist_ok=True)
+        with open(args.processed_data, "wb") as f:
+            pickle.dump(data_to_save, f)
+
         print(f"Saved train_loader to {args.train_loader}")
         print(f"Saved test_loader to {args.test_loader}")
+        print(f"Saved input_dim to {args.input_dim}")
+        print(f"Saved processed_data to {args.processed_data}")
     args:
       - --json_data
       - {inputPath: json_data}
@@ -123,3 +145,7 @@ implementation:
       - {outputPath: train_loader}
       - --test_loader
       - {outputPath: test_loader}
+      - --input_dim
+      - {outputPath: input_dim}
+      - --processed_data
+      - {outputPath: processed_data}
