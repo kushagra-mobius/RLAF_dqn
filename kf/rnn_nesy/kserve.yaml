@@ -41,7 +41,7 @@ implementation:
                 print("Found nesy_factory.RNNs module at: " + rnn_file)
                 
                 # Create a model file for torch-model-archiver using nesy_factory RNN classes
-                rnn_model_content = "# RNN model file for torch-model-archiver\nfrom nesy_factory.RNNs.simple_rnn import SimpleRNN\nfrom nesy_factory.RNNs.gru import GRU\n\n# Export the main RNN classes that can be used\n__all__ = ['SimpleRNN', 'GRU']\n"
+                rnn_model_content = "# RNN model file for torch-model-archiver\\nfrom nesy_factory.RNNs.simple_rnn import SimpleRNN\\nfrom nesy_factory.RNNs.gru import GRU\\n# Export the main RNN classes that can be used\\n__all__ = ['SimpleRNN', 'GRU']\\n"
                 
                 local_rnn = os.path.join(os.getcwd(), 'rnn_model.py')
                 with open(local_rnn, 'w') as f:
@@ -126,7 +126,7 @@ implementation:
                 print("Output Directory: " + args.mar_file_out)
                 
                 # Step 1: Locate input files
-                print("\\n--- Step 1: Locating input files ---")
+                print("\\n Step 1: Locating input files ")
                 handler_path = os.path.join(args.handler_file, 'handler.py')
                 
                 rnn_model_path = os.path.join(args.rnn_model_file, 'trained_model.pth')
@@ -142,12 +142,12 @@ implementation:
                 log_data['steps'].append({'step': 1, 'action': 'locate_files', 'status': 'success'})
                 
                 # Step 2: Find rnn module
-                print("\\n--- Step 2: Locating rnn module ---")
+                print("\\n Step 2: Locating rnn module ")
                 rnn_path = find_rnn_module()
                 log_data['steps'].append({'step': 2, 'action': 'locate_rnn', 'status': 'success', 'rnn_path': rnn_path})
                 
                 # Step 3: Create MAR file
-                print("\\n--- Step 3: Creating MAR file ---")
+                print("\\n Step 3: Creating MAR file ")
                 mar_file_path, creation_output = create_mar_file(
                     args.model_name,
                     args.model_version,
