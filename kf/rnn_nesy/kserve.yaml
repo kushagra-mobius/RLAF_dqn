@@ -1,12 +1,12 @@
-name: VAE MAR File Creator from Downloads
-description: Creates a torch-model-archiver MAR file using downloaded handler.py and trained_vae_model.pth files along with the VAE library already present in the container.
+name: RNN MAR File Creator from Downloads
+description: Creates a torch-model-archiver MAR file using a handler and a trained .pth model file along with the RNN library already present in the container.
 inputs:
   - {name: handler_file, type: String, description: "Directory containing downloaded handler.py file"}
-  - {name: vae_model_file, type: Model, description: "Directory containing downloaded trained_vae_model.pth file"}
-  - {name: model_name, type: String, description: "Name for the MAR model", default: "vae_signature_failure"}
+  - {name: rnn_model_file, type: Model, description: "Directory containing downloaded trained_model.pth file"}
+  - {name: model_name, type: String, description: "Name for the MAR model", default: "rnn_signature_failure"}
   - {name: model_version, type: String, description: "Version for the MAR model", default: "1.0"}
 outputs:
-  - {name: mar_file_out, type: String, description: "Output directory containing the VAE MAR file"}
+  - {name: mar_file_out, type: String, description: "Output directory containing the RNN MAR file"}
   - {name: mar_creation_log, type: String, description: "Log file with MAR creation details"}
 implementation:
   container:
@@ -31,47 +31,29 @@ implementation:
         import shutil
         import glob
 
-        def find_vae_module():
-            # Try nesy_factory.VAE module first (correct path)
+        def find_rnn_module():
+            # Try nesy_factory.RNNs module first
             try:
-                from nesy_factory.VAE import StandardVAE
-                import nesy_factory.VAE as vae_module
-                vae_file = vae_module.__file__
-                print("Found nesy_factory.VAE module at: " + vae_file)
+                from nesy_factory.RNNs.simple_rnn import SimpleRNN
+                from nesy_factory.RNNs.gru import GRU
+                import nesy_factory.RNNs as rnn_module
+                rnn_file = rnn_module.__file__
+                print("Found nesy_factory.RNNs module at: " + rnn_file)
                 
-                # Create a model file for torch-model-archiver using nesy_factory VAE classes
-                vae_model_content = "# VAE model file for torch-model-archiver\\nfrom nesy_factory.VAE import StandardVAE, BetaVAE, ConditionalVAE, BaseVAE\\n\\n# Export the main VAE classes that can be used\\n__all__ = ['StandardVAE', 'BetaVAE', 'ConditionalVAE', 'BaseVAE']\\n"
+                # Create a model file for torch-model-archiver using nesy_factory RNN classes
+                rnn_model_content = "# RNN model file for torch-model-archiver\nfrom nesy_factory.RNNs.simple_rnn import SimpleRNN\nfrom nesy_factory.RNNs.gru import GRU\n\n# Export the main RNN classes that can be used\n__all__ = ['SimpleRNN', 'GRU']\n"
                 
-                local_vae = os.path.join(os.getcwd(), 'vae_model.py')
-                with open(local_vae, 'w') as f:
-                    f.write(vae_model_content)
-                print("Created vae_model.py using nesy_factory.VAE classes at: " + local_vae)
-                return local_vae
+                local_rnn = os.path.join(os.getcwd(), 'rnn_model.py')
+                with open(local_rnn, 'w') as f:
+                    f.write(rnn_model_content)
+                print("Created rnn_model.py using nesy_factory.RNNs classes at: " + local_rnn)
+                return local_rnn
                     
             except ImportError as e:
-                print("Could not import nesy_factory.VAE module: " + str(e))
-                print("Trying fallback VAE import...")
-                
-                # Fallback: try simple 'vae' import
-                try:
-                    import vae
-                    vae_file = vae.__file__
-                    print("Found fallback vae module at: " + vae_file)
-                    return vae_file
-                except ImportError:
-                    pass
-                    
-                # Last resort: create minimal VAE module
-                print("Creating minimal VAE module as fallback...")
-                vae_content = "import torch\\nimport torch.nn as nn\\nimport torch.nn.functional as F\\n\\nclass StandardVAE(nn.Module):\\n    def __init__(self, input_dim=784, hidden_dim=256, latent_dim=32):\\n        super(StandardVAE, self).__init__()\\n        self.fc1 = nn.Linear(input_dim, hidden_dim)\\n        self.fc21 = nn.Linear(hidden_dim, latent_dim)\\n        self.fc22 = nn.Linear(hidden_dim, latent_dim)\\n        self.fc3 = nn.Linear(latent_dim, hidden_dim)\\n        self.fc4 = nn.Linear(hidden_dim, input_dim)\\n\\n    def encode(self, x):\\n        h1 = F.relu(self.fc1(x))\\n        return self.fc21(h1), self.fc22(h1)\\n\\n    def reparameterize(self, mu, logvar):\\n        std = torch.exp(0.5*logvar)\\n        eps = torch.randn_like(std)\\n        return mu + eps*std\\n\\n    def decode(self, z):\\n        h3 = F.relu(self.fc3(z))\\n        return torch.sigmoid(self.fc4(h3))\\n\\n    def forward(self, x):\\n        mu, logvar = self.encode(x.view(-1, 784))\\n        z = self.reparameterize(mu, logvar)\\n        return self.decode(z), mu, logvar\\n"
-                
-                fallback_vae = os.path.join(os.getcwd(), 'vae_fallback.py')
-                with open(fallback_vae, 'w') as f:
-                    f.write(vae_content)
-                print("Created fallback VAE module at: " + fallback_vae)
-                return fallback_vae
+                print("Could not import nesy_factory.RNNs module: " + str(e))
+                sys.exit("Exiting: nesy_factory.RNNs module not found.")
 
-        def create_mar_file(model_name, model_version, vae_path, handler_path, model_pth_path, output_dir):
+        def create_mar_file(model_name, model_version, rnn_path, handler_path, model_pth_path, output_dir):
             
             # Ensure output directory exists
             os.makedirs(output_dir, exist_ok=True)
@@ -81,7 +63,7 @@ implementation:
                 'torch-model-archiver',
                 '--model-name', model_name,
                 '--version', model_version,
-                '--model-file', vae_path,
+                '--model-file', rnn_path,
                 '--serialized-file', model_pth_path,
                 '--handler', handler_path,
                 '--export-path', output_dir,
@@ -116,8 +98,8 @@ implementation:
         def main():
             parser = argparse.ArgumentParser()
             parser.add_argument('--handler_file', type=str, required=True, help='Directory containing handler.py')
-            parser.add_argument('--vae_model_file', type=str, required=True, help='Directory containing trained_vae_model.pth')
-            parser.add_argument('--model_name', type=str, default='vae_signature_failure', help='Model name for MAR file')
+            parser.add_argument('--rnn_model_file', type=str, required=True, help='Directory containing trained_model.pth')
+            parser.add_argument('--model_name', type=str, default='rnn_signature_failure', help='Model name for MAR file')
             parser.add_argument('--model_version', type=str, default='1.0', help='Model version')
             parser.add_argument('--mar_file_out', type=str, required=True, help='Output directory for MAR file')
             parser.add_argument('--mar_creation_log', type=str, required=True, help='Output path for creation log')
@@ -130,7 +112,7 @@ implementation:
                 'model_name': args.model_name,
                 'model_version': args.model_version,
                 'handler_input_dir': args.handler_file,
-                'vae_model_input_dir': args.vae_model_file,
+                'rnn_model_input_dir': args.rnn_model_file,
                 'status': 'starting',
                 'steps': []
             }
@@ -140,41 +122,38 @@ implementation:
                 print("Model Name: " + args.model_name)
                 print("Model Version: " + args.model_version)
                 print("Handler Input Directory: " + args.handler_file)
-                print("VAE Model Input Directory: " + args.vae_model_file)
+                print("RNN Model Input Directory: " + args.rnn_model_file)
                 print("Output Directory: " + args.mar_file_out)
                 
                 # Step 1: Locate input files
                 print("\\n--- Step 1: Locating input files ---")
                 handler_path = os.path.join(args.handler_file, 'handler.py')
                 
-                # Try both possible model file names
-                vae_model_path = os.path.join(args.vae_model_file, 'trained_vae_model.pth')
-                if not os.path.exists(vae_model_path):
-                    vae_model_path = os.path.join(args.vae_model_file, 'trained_model.pth')
+                rnn_model_path = os.path.join(args.rnn_model_file, 'trained_model.pth')
                 
                 if not os.path.exists(handler_path):
                     raise Exception("handler.py not found at: " + handler_path)
-                if not os.path.exists(vae_model_path):
-                    raise Exception("Model file not found at: " + args.vae_model_file + " (tried trained_vae_model.pth and trained_model.pth)")
+                if not os.path.exists(rnn_model_path):
+                    raise Exception("Model file not found at: " + args.rnn_model_file + " (tried trained_model.pth)")
                     
                 print("Handler file found: " + handler_path)
-                print("VAE model file found: " + vae_model_path)
-                print("Model file name: " + os.path.basename(vae_model_path))
+                print("RNN model file found: " + rnn_model_path)
+                print("Model file name: " + os.path.basename(rnn_model_path))
                 log_data['steps'].append({'step': 1, 'action': 'locate_files', 'status': 'success'})
                 
-                # Step 2: Find vae module
-                print("\\n--- Step 2: Locating vae module ---")
-                vae_path = find_vae_module()
-                log_data['steps'].append({'step': 2, 'action': 'locate_vae', 'status': 'success', 'vae_path': vae_path})
+                # Step 2: Find rnn module
+                print("\\n--- Step 2: Locating rnn module ---")
+                rnn_path = find_rnn_module()
+                log_data['steps'].append({'step': 2, 'action': 'locate_rnn', 'status': 'success', 'rnn_path': rnn_path})
                 
                 # Step 3: Create MAR file
                 print("\\n--- Step 3: Creating MAR file ---")
                 mar_file_path, creation_output = create_mar_file(
-                    args.model_name, 
-                    args.model_version, 
-                    vae_path, 
-                    handler_path, 
-                    vae_model_path, 
+                    args.model_name,
+                    args.model_version,
+                    rnn_path,
+                    handler_path,
+                    rnn_model_path,
                     args.mar_file_out
                 )
                 log_data['steps'].append({'step': 3, 'action': 'create_mar', 'status': 'success', 'mar_file': mar_file_path})
@@ -208,8 +187,8 @@ implementation:
     args:
       - --handler_file
       - {inputPath: handler_file}
-      - --vae_model_file
-      - {inputPath: vae_model_file}
+      - --rnn_model_file
+      - {inputPath: rnn_model_file}
       - --model_name
       - {inputValue: model_name}
       - --model_version
