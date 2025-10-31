@@ -86,7 +86,7 @@ implementation:
                     with open(args.tenant_id, 'r') as f:
                         row['tenant_id'] = f.read().strip()
                 if args.project_id != '-1':
-                    row['project_id'] = args.project_id
+                    row['projectId'] = args.project_id
                 if args.architecture_type != '-1':
                     row['architecture_type'] = args.architecture_type
                 if 'execution_id' not in row and args.execution_id != '-1':
@@ -212,7 +212,7 @@ implementation:
                     if args.tenant_id != '-1':
                         creation_data['tenant_id'] = tenant_id
                     if args.project_id != '-1':
-                        creation_data['project_id'] = args.project_id
+                        creation_data['projectId'] = args.project_id
                     if args.architecture_type != '-1':
                         creation_data['architecture_type'] = args.architecture_type
 
