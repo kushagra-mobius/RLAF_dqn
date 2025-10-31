@@ -10,7 +10,7 @@ outputs:
   - {name: mar_creation_log, type: String, description: "Log file with MAR creation details"}
 implementation:
   container:
-    image: nikhilv215/nesy-factory:v22
+    image: kushagra4761/nesy-factory-library
     command:
       - sh
       - -c
