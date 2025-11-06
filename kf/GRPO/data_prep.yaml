@@ -50,12 +50,7 @@ implementation:
             # Data preparation
             dataset = load_dataset(config["dataset_name"], config["dataset_en"], split="train")
 
-            system_prompt = (
-                "You are given a problem.\n"
-                "Think about the problem and provide your working out.\n"
-                f'Place it between {config["reasoning_start"]} and {config["reasoning_end"]}.\n'
-                f'Then, provide your solution between {config["solution_start"]}{config["solution_end"]}'
-            )
+            system_prompt = f'You are given a problem.\\nThink about the problem and provide your working out.\\nPlace it between {config["reasoning_start"]} and {config["reasoning_end"]}.\\nThen, provide your solution between {config["solution_start"]}{config["solution_end"]}'
 
             def extract_hash_answer(text):
                 return text
