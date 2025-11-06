@@ -1,0 +1,68 @@
+name: GRPO Data Preparation
+description: Prepares data for GRPO training.
+inputs:
+  - {name: config, type: String}
+outputs:
+  - {name: dataset, type: Dataset}
+implementation:
+  container:
+    image: kushagra4761/nesy-factory-library
+    command:
+      - sh
+      - -c
+      - |
+        exec "$0" "$@"
+      - python3
+      - -u
+      - -c
+      - |
+        import os
+        import torch
+        import re
+        import numpy as np
+        import pandas as pd
+        from datasets import load_dataset, Dataset
+        import argparse
+        import json
+        import pickle
+
+        def main():
+            parser = argparse.ArgumentParser()
+            parser.add_argument('--config', type=str, required=True)
+            parser.add_argument('--dataset', type=str, required=True)
+            args = parser.parse_args()
+
+            config = json.loads(args.config)
+
+            # Data preparation
+            dataset = load_dataset(config["dataset_name"], config["dataset_en"], split="train")
+
+            system_prompt = f"""You are given a problem.
+        Think about the problem and provide your working out.
+        Place it between {config["reasoning_start"]} and {config["reasoning_end"]}.
+        Then, provide your solution between {config["solution_start"]}{config["solution_end"]}"""
+
+            def extract_hash_answer(text):
+                return text
+
+            dataset = dataset.map(lambda x: {
+                "prompt": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": x["prompt"]},
+                ],
+                "answer": extract_hash_answer(x["solution"]),
+            })
+
+            os.makedirs(os.path.dirname(args.dataset), exist_ok=True)
+            with open(args.dataset, "wb") as f:
+                pickle.dump(dataset, f)
+
+            print(f"Saved dataset to {args.dataset}")
+
+        if __name__ == '__main__':
+            main()
+    args:
+      - --config
+      - {inputValue: config}
+      - --dataset
+      - {outputPath: dataset}
