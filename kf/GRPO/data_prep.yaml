@@ -46,11 +46,11 @@ implementation:
             args = parser.parse_args()
 
             config = json.loads(args.config)
+            
+            system_prompt = f'You are given a problem.\\nThink about the problem and provide your working out.\\nPlace it between {config["reasoning_start"]} and {config["reasoning_end"]}.\\nThen, provide your solution between {config["solution_start"]}{config["solution_end"]}'
 
             # Data preparation
             dataset = load_dataset(config["dataset_name"], name=config.get("dataset_en"), split="train")
-
-            system_prompt = f'You are given a problem.\\nThink about the problem and provide your working out.\\nPlace it between {config["reasoning_start"]} and {config["reasoning_end"]}.\\nThen, provide your solution between {config["solution_start"]}{config["solution_end"]}'
 
             def extract_hash_answer(text):
                 return text
@@ -63,7 +63,9 @@ implementation:
                 "answer": extract_hash_answer(x["solution"]),
             })
 
-            dataset.save_to_disk(os.path.dirname(args.dataset))
+            output_dir = os.path.dirname(args.dataset)
+            os.makedirs(output_dir, exist_ok=True)
+            dataset.save_to_disk(output_dir)
 
             print(f"Saved dataset to {args.dataset}")
 
