@@ -6,7 +6,7 @@ outputs:
   - {name: dataset, type: Dataset}
 implementation:
   container:
-    image: kushagra4761/nesy-factory-library
+    image: gurpreetgandhi/nesy-factory:v24-gpu
     command:
       - sh
       - -c
@@ -48,7 +48,7 @@ implementation:
             config = json.loads(args.config)
 
             # Data preparation
-            dataset = load_dataset(config["dataset_name"], config["dataset_en"], split="train")
+            dataset = load_dataset(config["dataset_name"], name=config.get("dataset_en"), split="train")
 
             system_prompt = f'You are given a problem.\\nThink about the problem and provide your working out.\\nPlace it between {config["reasoning_start"]} and {config["reasoning_end"]}.\\nThen, provide your solution between {config["solution_start"]}{config["solution_end"]}'
 
@@ -63,9 +63,7 @@ implementation:
                 "answer": extract_hash_answer(x["solution"]),
             })
 
-            os.makedirs(os.path.dirname(args.dataset), exist_ok=True)
-            with open(args.dataset, "wb") as f:
-                pickle.dump(dataset, f)
+            dataset.save_to_disk(os.path.dirname(args.dataset))
 
             print(f"Saved dataset to {args.dataset}")
 
