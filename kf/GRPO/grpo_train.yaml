@@ -172,7 +172,7 @@ implementation:
                 ]
                 if PRINTED_TIMES % PRINT_EVERY_STEPS == 0:
                     print(
-                        '*'*20 + f"Question:\n{question}", f"\nAnswer:\n{answer[0]}", f"\nResponse:\n{responses[0]}", f"\nExtracted:\n{extracted_responses[0]}"
+                        f"Question:\\n{question}\\nAnswer:\\n{answer[0]}\\nResponse:\\n{responses[0]}\\nExtracted:\\n{extracted_responses[0]}"
                     )
                 PRINTED_TIMES += 1
                 scores = []
