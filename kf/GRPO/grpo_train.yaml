@@ -67,10 +67,7 @@ implementation:
             )
 
             # Chat Template setup
-            system_prompt = f"""You are given a problem.
-        Think about the problem and provide your working out.
-        Place it between {config["reasoning_start"]} and {config["reasoning_end"]}.
-        Then, provide your solution between {config["solution_start"]}{config["solution_end"]}"""
+            system_prompt = f'You are given a problem.\\nThink about the problem and provide your working out.\\nPlace it between {config["reasoning_start"]} and {config["reasoning_end"]}.\\nThen, provide your solution between {config["solution_start"]}{config["solution_end"]}'
 
             chat_template = \
                 "{% if messages[0]['role'] == 'system' %}"\
@@ -90,9 +87,7 @@ implementation:
                 "{% if add_generation_prompt %}{{ '{reasoning_start}' }}"\
                 "{% endif %}"
 
-            chat_template = chat_template\
-                .replace("'{system_prompt}'", f"'{system_prompt}'")\
-                .replace("'{reasoning_start}'", f"'{config['reasoning_start']}'")
+            chat_template = chat_template.replace("'{system_prompt}'", f"'{system_prompt}'").replace("'{reasoning_start}'", f"'{config['reasoning_start']}'")
             tokenizer.chat_template = chat_template
 
             # Reward functions and regex
