@@ -1,0 +1,96 @@
+name: RNN Inference
+description: Performs inference using a trained RNN model.
+inputs:
+  - {name: input_pickle, type: Dataset}
+  - {name: config_str, type: String}
+  - {name: weights_url, type: String}
+outputs:
+  - {name: output_json, type: String}
+implementation:
+  container:
+    image: kushagra4761/nesy-factory-library
+    command:
+      - sh
+      - -c
+      - |
+        exec "$0" "$@"
+      - python3
+      - -u
+      - -c
+      - |
+        import argparse
+        import json
+        import torch
+        import numpy as np
+        import requests
+        import io
+        import pickle
+        from nesy_factory.RNNs.simple_rnn import SimpleRNN
+        from nesy_factory.RNNs.gru import GRU
+
+        def load_model_weights(url):
+            response = requests.get(url)
+            response.raise_for_status()
+            buffer = io.BytesIO(response.content)
+            return torch.load(buffer, map_location=torch.device('cpu'))
+
+        def main():
+            parser = argparse.ArgumentParser()
+            parser.add_argument('--input_pickle', type=str, required=True)
+            parser.add_argument('--config_str', type=str, required=True)
+            parser.add_argument('--weights_url', type=str, required=True)
+            parser.add_argument('--output_json', type=str, required=True)
+            args = parser.parse_args()
+
+            config = json.loads(args.config_str)
+            
+            model_config = {
+                'input_dim': config.get('input_dim', 1),
+                'hidden_dim': config.get('hidden_dim', 32),
+                'output_dim': 1,
+                'num_layers': config.get('num_layers', 1),
+                'dropout': config.get('dropout', 0.0),
+                'optimizer': 'adam',
+                'learning_rate': 0.001,
+                'epochs': 1,
+                'loss_function': 'mse'
+            }
+
+            if config.get('model_type') == 'SimpleRNN':
+                model = SimpleRNN(model_config)
+            elif config.get('model_type') == 'GRU':
+                model = GRU(model_config)
+            else:
+                raise ValueError("Invalid model type specified in config")
+
+            state_dict = load_model_weights(args.weights_url)
+            model.load_state_dict(state_dict)
+            model.eval()
+
+            with open(args.input_pickle, 'rb') as f:
+                input_list = pickle.load(f)
+            
+            input_tensor = torch.tensor(input_list, dtype=torch.float32)
+            
+            if input_tensor.dim() == 2:
+                input_tensor = input_tensor.unsqueeze(0)
+
+            with torch.no_grad():
+                output = model(input_tensor)
+            
+            result = {"prediction": output.numpy().tolist()}
+            
+            with open(args.output_json, 'w') as f:
+                json.dump(result, f)
+
+        if __name__ == '__main__':
+            main()
+    args:
+      - --input_pickle
+      - {inputPath: input_pickle}
+      - --config_str
+      - {inputValue: config_str}
+      - --weights_url
+      - {inputValue: weights_url}
+      - --output_json
+      - {outputPath: output_json}
