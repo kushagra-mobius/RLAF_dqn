@@ -1,9 +1,9 @@
 name: Process String Input
 description: Processes a string input into a pickled object.
 inputs:
-  - {name: input_string, type: String, description: 'The input string (e.g., "[[1,2,3]]") to be processed.'}
+  - {name: inp_string, type: String, description: 'The input string (e.g., "[[1,2,3]]") to be processed.'}
 outputs:
-  - {name: output_pickle, type: Dataset}
+  - {name: inp_pickle, type: Dataset}
 implementation:
   container:
     image: python:3.9
@@ -22,20 +22,20 @@ implementation:
         import os
 
         parser = argparse.ArgumentParser()
-        parser.add_argument('--input_string', type=str, required=True)
-        parser.add_argument('--output_pickle', type=str, required=True)
+        parser.add_argument('--inp_string', type=str, required=True)
+        parser.add_argument('--inp_pickle', type=str, required=True)
         args = parser.parse_args()
 
         # The input string is expected to be a JSON-formatted list of lists
-        data = json.loads(args.input_string)
+        data = json.loads(args.inp_string)
         
-        os.makedirs(os.path.dirname(args.output_pickle), exist_ok=True)
-        with open(args.output_pickle, "wb") as f:
+        os.makedirs(os.path.dirname(args.inp_pickle), exist_ok=True)
+        with open(args.inp_pickle, "wb") as f:
             pickle.dump(data, f)
 
-        print(f"Processed and saved pickled data to {args.output_pickle}")
+        print(f"Processed and saved pickled data to {args.inp_pickle}")
     args:
-      - --input_string
-      - {inputValue: input_string}
-      - --output_pickle
-      - {outputPath: output_pickle}
+      - --inp_string
+      - {inputValue: inp_string}
+      - --inp_pickle
+      - {outputPath: inp_pickle}
