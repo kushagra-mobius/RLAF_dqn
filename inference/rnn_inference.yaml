@@ -46,16 +46,17 @@ implementation:
             if isinstance(config, str):
                 config = json.loads(config)
             print(f" Config is {config}")
+            
             model_config = {
-                'input_dim': config.get('input_dim', 1),
-                'hidden_dim': config.get('hidden_dim', 32),
-                'output_dim': 1,
-                'num_layers': config.get('num_layers', 1),
-                'dropout': config.get('dropout', 0.0),
-                'optimizer': 'adam',
-                'learning_rate': 0.001,
-                'epochs': 1,
-                'loss_function': 'mse'
+              'input_dim': len(config['feature_columns']),
+              'hidden_dim': config['hidden_dim'],
+              'output_dim': 1,
+              'num_layers': config['num_layers'],
+              'dropout': config['dropout'],
+              'optimizer': 'adam',
+              'learning_rate': config['learning_rate'],
+              'epochs': config['epochs'],
+              'loss_function': config['loss_function']
             }
 
             if config.get('model_type') == 'SimpleRNN':
