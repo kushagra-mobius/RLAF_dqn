@@ -43,6 +43,8 @@ implementation:
             args = parser.parse_args()
 
             config = json.loads(args.config_str)
+            if isinstance(config, str):
+                config = json.loads(config)
             print(f" Config is {config}")
             model_config = {
                 'input_dim': config.get('input_dim', 1),
