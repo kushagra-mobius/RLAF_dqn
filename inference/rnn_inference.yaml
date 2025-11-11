@@ -43,7 +43,7 @@ implementation:
             args = parser.parse_args()
 
             config = json.loads(args.config_str)
-            
+            print(f" Config is {config}")
             model_config = {
                 'input_dim': config.get('input_dim', 1),
                 'hidden_dim': config.get('hidden_dim', 32),
