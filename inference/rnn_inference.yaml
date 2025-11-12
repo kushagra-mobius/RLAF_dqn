@@ -26,6 +26,7 @@ implementation:
         import io
         import pickle
         import ast
+        import os
         from nesy_factory.RNNs.simple_rnn import SimpleRNN
         from nesy_factory.RNNs.gru import GRU
 
@@ -86,6 +87,10 @@ implementation:
                 output = model(input_tensor)
             
             result = {"prediction": output.numpy().tolist()}
+            
+            output_dir = os.path.dirname(args.output_json)
+            if not os.path.exists(output_dir):
+                os.makedirs(output_dir)
             
             with open(args.output_json, 'w') as f:
                 json.dump(result, f)
