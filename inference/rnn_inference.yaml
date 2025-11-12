@@ -72,7 +72,8 @@ implementation:
 
             with open(args.input_pickle, 'rb') as f:
                 input_list = pickle.load(f)
-            
+            print(input_list)
+            print(type(input_list))
             input_tensor = torch.tensor(input_list, dtype=torch.float32)
             
             if input_tensor.dim() == 2:
