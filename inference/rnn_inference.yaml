@@ -25,6 +25,7 @@ implementation:
         import requests
         import io
         import pickle
+        import ast
         from nesy_factory.RNNs.simple_rnn import SimpleRNN
         from nesy_factory.RNNs.gru import GRU
 
@@ -74,6 +75,8 @@ implementation:
                 input_list = pickle.load(f)
             print(input_list)
             print(type(input_list))
+            if isinstance(input_list, str):
+                input_list = ast.literal_eval(input_list)
             input_tensor = torch.tensor(input_list, dtype=torch.float32)
             
             if input_tensor.dim() == 2:
