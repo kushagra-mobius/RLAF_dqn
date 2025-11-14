@@ -5,7 +5,7 @@ inputs:
   - {name: config_str, type: String}
   - {name: weights_url, type: String}
 outputs:
-  - {name: output_jsn, type: String}
+  - {name: outpt_jsn, type: String}
 implementation:
   container:
     image: kushagra4761/nesy-factory-library
@@ -41,7 +41,7 @@ implementation:
             parser.add_argument('--input_pickle', type=str, required=True)
             parser.add_argument('--config_str', type=str, required=True)
             parser.add_argument('--weights_url', type=str, required=True)
-            parser.add_argument('--output_jsn', type=str, required=True)
+            parser.add_argument('--outpt_jsn', type=str, required=True)
             args = parser.parse_args()
 
             config = json.loads(args.config_str)
@@ -88,11 +88,11 @@ implementation:
             
             result = {"prediction": output.numpy().tolist()}
             
-            output_dir = os.path.dirname(args.output_jsn)
+            output_dir = os.path.dirname(args.outpt_jsn)
             if not os.path.exists(output_dir):
                 os.makedirs(output_dir)
             
-            with open(args.output_jsn, 'w') as f:
+            with open(args.outpt_jsn, 'w') as f:
                 json.dump(result, f)
 
         if __name__ == '__main__':
@@ -104,5 +104,5 @@ implementation:
       - {inputValue: config_str}
       - --weights_url
       - {inputValue: weights_url}
-      - --output_jsn
-      - {outputPath: output_jsn}
+      - --outpt_jsn
+      - {outputPath: outpt_jsn}
