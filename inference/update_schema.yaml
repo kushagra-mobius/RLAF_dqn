@@ -3,7 +3,7 @@ description: Updates a schema instance with the prediction output.
 inputs:
   - {name: schema_id, type: String}
   - {name: execution_id, type: String}
-  - {name: prediction_json, type: String}
+  - {name: prediction_jsn, type: String}
   - {name: token, type: string}
   - {name: url_domain, type: String}
 implementation:
@@ -46,7 +46,7 @@ implementation:
         parser = argparse.ArgumentParser()
         parser.add_argument('--schema_id', type=str, required=True)
         parser.add_argument('--execution_id', type=str, required=True)
-        parser.add_argument('--prediction_json', type=str, required=True)
+        parser.add_argument('--prediction_jsn', type=str, required=True)
         parser.add_argument('--token', type=str, required=True)
         parser.add_argument('--url_domain', type=str, required=True)
         args = parser.parse_args()
@@ -54,7 +54,7 @@ implementation:
         with open(args.token, 'r') as f:
             access_token = f.read().strip()
 
-        prediction_data = json.loads(args.prediction_json)
+        prediction_data = json.loads(args.prediction_jsn)
         prediction_str = json.dumps(prediction_data.get('prediction', []))
 
         update_payload = {"infernce_output": prediction_str}
@@ -68,8 +68,8 @@ implementation:
       - {inputValue: schema_id}
       - --execution_id
       - {inputValue: execution_id}
-      - --prediction_json
-      - {inputValue: prediction_json}
+      - --prediction_jsn
+      - {inputValue: prediction_jsn}
       - --token
       - {inputPath: token}
       - --url_domain
