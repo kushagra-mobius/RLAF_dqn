@@ -1,0 +1,82 @@
+name: Fetch Inference Input
+description: Fetches inference input data from a specified API endpoint using schema_id and execution_id.
+inputs:
+  - {name: schema_id, type: String, description: 'The schema ID to fetch data from.'}
+  - {name: execution_id, type: String, description: 'The execution ID to filter the data.'}
+  - {name: token, type: String, description: 'Bearer token for authentication.'}
+  - {name: url_domain, type: String, description: 'The domain for the API endpoint.'}
+outputs:
+  - {name: out_pickle, type: Dataset}
+implementation:
+  container:
+    image: python:3.9
+    command:
+      - sh
+      - -c
+      - |
+        PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet requests || \
+        PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet requests --user
+        exec "$0" "$@"
+      - python3
+      - -u
+      - -c
+      - |
+        import argparse
+        import json
+        import os
+        import requests
+        import pickle
+        import ast
+
+        def fetch_data_from_api(schema_id, execution_id, token, url_domain):
+            url = f'https://{url_domain}/pi-entity-instances-service/v3.0/schemas/{schema_id}/instances/list'
+            headers = {
+                'Content-Type': 'application/json',
+                'Authorization': f'Bearer {token}'
+            }
+            data = {
+              "dbType": "TIDB",
+              "ownedOnly": False,
+              "filter": {
+                  "execution_id": execution_id
+              }
+            }
+            response = requests.post(url, headers=headers, data=json.dumps(data))
+            response.raise_for_status()
+            return response.json()
+
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--schema_id', type=str, required=True)
+        parser.add_argument('--execution_id', type=str, required=True)
+        parser.add_argument('--token', type=str, required=True)
+        parser.add_argument('--url_domain', type=str, required=True)
+        parser.add_argument('--out_pickle', type=str, required=True)
+        args = parser.parse_args()
+        
+        with open(args.token, 'r') as f:
+            token = f.read().strip()
+            
+        print(f"Fetching data")
+        data = fetch_data_from_api(args.schema_id, args.execution_id, token, args.url_domain)
+        
+        inference_input_str = data.get('content', [{}])[0].get('infernce_input', '[]')
+        
+        # Convert the string representation of the list to an actual list
+        inference_input = ast.literal_eval(inference_input_str)
+        
+        os.makedirs(os.path.dirname(args.out_pickle), exist_ok=True)
+        with open(args.out_pickle, "wb") as f:
+            pickle.dump(inference_input, f)
+
+        print(f"Saved pickled data to {args.out_pickle}")
+    args:
+      - --schema_id
+      - {inputValue: schema_id}
+      - --execution_id
+      - {inputValue: execution_id}
+      - --token
+      - {inputPath: token}
+      - --url_domain
+      - {inputValue: url_domain}
+      - --out_pickle
+      - {outputPath: out_pickle}
