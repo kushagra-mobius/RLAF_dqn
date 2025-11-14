@@ -3,7 +3,7 @@ description: Fetches inference input data from a specified API endpoint using sc
 inputs:
   - {name: schema_id, type: String, description: 'The schema ID to fetch data from.'}
   - {name: execution_id, type: String, description: 'The execution ID to filter the data.'}
-  - {name: token, type: String, description: 'Bearer token for authentication.'}
+  - {name: token, type: string, description: 'Bearer token for authentication.'}
   - {name: url_domain, type: String, description: 'The domain for the API endpoint.'}
 outputs:
   - {name: out_pickle, type: Dataset}
@@ -55,10 +55,10 @@ implementation:
         
         with open(args.token, 'r') as f:
             token = f.read().strip()
-            
+
         print(f"Fetching data")
         data = fetch_data_from_api(args.schema_id, args.execution_id, token, args.url_domain)
-        
+        print(f"{data}")
         inference_input_str = data.get('content', [{}])[0].get('infernce_input', '[]')
         
         # Convert the string representation of the list to an actual list
