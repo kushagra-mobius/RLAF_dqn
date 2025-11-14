@@ -1,0 +1,78 @@
+name: Update Schema with Prediction
+description: Updates a schema instance with the prediction output.
+inputs:
+  - {name: schema_id, type: String}
+  - {name: execution_id, type: String}
+  - {name: prediction_json, type: String}
+  - {name: token, type: string}
+  - {name: url_domain, type: String}
+implementation:
+  container:
+    image: python:3.9
+    command:
+      - sh
+      - -ec
+      - |
+        python3 -m pip install --quiet requests || \
+        python3 -m pip install --quiet requests --user
+        exec "$0" "$@"
+      - python3
+      - -u
+      - -c
+      - |
+        import argparse
+        import json
+        import requests
+
+        def update_instance(access_token, domain, schema_id, execution_id, updates):
+            update_url = f"https://{domain}/pi-entity-instances-service/v2.0/schemas/{schema_id}/instances"
+            headers = {
+                "Authorization": f"Bearer {access_token}", "Content-Type": "application/json"
+            }
+            patch_operations = [
+                {"operation": "REPLACE", "path": field, "value": value}
+                for field, value in updates.items()
+            ]
+            payload = {
+                "dbType": "TIDB",
+                "conditionalFilter": {"conditions": [{"field": "execution_id", "operator": "EQUAL", "value": execution_id}]},
+                "partialUpdateRequests": [{"patch": patch_operations}]
+            }
+            print(f"Update payload: {json.dumps(payload, indent=2)}")
+            response = requests.patch(update_url, headers=headers, json=payload, timeout=30)
+            response.raise_for_status()
+            return response.json()
+
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--schema_id', type=str, required=True)
+        parser.add_argument('--execution_id', type=str, required=True)
+        parser.add_argument('--prediction_json', type=str, required=True)
+        parser.add_argument('--token', type=str, required=True)
+        parser.add_argument('--url_domain', type=str, required=True)
+        args = parser.parse_args()
+
+        with open(args.token, 'r') as f:
+            access_token = f.read().strip()
+
+        with open(args.prediction_json, 'r') as f:
+            prediction_data = json.load(f)
+        
+        prediction_str = json.dumps(prediction_data.get('prediction', []))
+
+        update_payload = {"infernce_output": prediction_str}
+        
+        print(f"Updating instance for execution_id {args.execution_id}")
+        update_instance(access_token, args.url_domain, args.schema_id, args.execution_id, update_payload)
+        print(f"Instance for execution_id {args.execution_id} updated successfully.")
+
+    args:
+      - --schema_id
+      - {inputValue: schema_id}
+      - --execution_id
+      - {inputValue: execution_id}
+      - --prediction_json
+      - {inputPath: prediction_json}
+      - --token
+      - {inputPath: token}
+      - --url_domain
+      - {inputValue: url_domain}
