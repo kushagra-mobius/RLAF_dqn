@@ -15,7 +15,7 @@ implementation:
       - |
         set -e
         echo "Starting pipeline execution."
-        echo "Inputs received: model_name=$1, dataset_name=$2, config=$3"
+        echo "Inputs received: model_name=$0, dataset_name=$1, config=$2"
         
         echo "Checking for GPU availability..."
         if command -v nvidia-smi >/dev/null 2>&1; then
@@ -25,12 +25,14 @@ implementation:
           echo "GPU detection utility 'nvidia-smi' not found or GPU not available."
         fi
         
-        # Arguments: $1=model_name, $2=dataset_name, $3=config, $4=saved_model_path (output dir)
-        export MODEL_NAME="$1"
-        export DATASET_NAME="$3"
-        export OUTPUT_DIR="$4"
+        # Arguments: $0=model_name, $1=dataset_name, $2=config, $3=saved_model_path (output dir)
+        export MODEL_NAME="$0"
+        export DATASET_NAME="$2"
+        export OUTPUT_DIR="$3"
         
-        # Parse config ($2) and export training parameters
+        echo "Parsing configuration using input: $1"
+        
+        # Parse config ($1) and export training parameters
         eval "$(python3 -c '
         import json
         import sys
@@ -60,7 +62,8 @@ implementation:
                 print(f'export {key.upper()}="{value}"')
             else:
                 print(f'export {key.upper()}={value}')
-        ' "$2")"
+        ' "$1")"
+        echo "Exported parameters confirmed: RESOLUTION=$RESOLUTION, LEARNING_RATE=$LEARNING_RATE"
 
         accelerate launch --mixed_precision="fp16" train_text_to_image_lora.py \
             --pretrained_model_name_or_path="$MODEL_NAME" \
