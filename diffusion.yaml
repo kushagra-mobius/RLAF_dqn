@@ -1,0 +1,68 @@
+name: Train Text-to-Image LoRA Diffusion Model
+description: Fine-tunes a LoRA diffusion model using provided model name, dataset name, and configuration.
+inputs:
+  - {name: model_name, type: String}
+  - {name: dataset_name, type: String}
+  - {name: config, type: String}
+outputs:
+  - {name: saved_model, type: Directory}
+implementation:
+  container:
+    image: kushagra4761/diffusers-text-to-image:latest
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        # Arguments: $1=model_name, $2=dataset_name, $3=config, $4=saved_model_path (output dir)
+        export MODEL_NAME="$1"
+        export DATASET_NAME="$2"
+        export OUTPUT_DIR="$4"
+        
+        # Parse config ($3) and export training parameters
+        eval "$(python3 -c '
+        import json
+        import sys
+        import os
+
+        try:
+            config = json.loads(sys.argv[1])
+        except (json.JSONDecodeError, IndexError):
+            config = {}
+
+        DEFAULTS = {
+            "resolution": 512,
+            "train_batch_size": 1,
+            "num_train_epochs": 100,
+            "checkpointing_steps": 5000,
+            "learning_rate": 1e-04,
+            "lr_scheduler": "constant",
+            "lr_warmup_steps": 0,
+            "seed": 42
+        }
+
+        settings = DEFAULTS.copy()
+        settings.update(config)
+
+        for key, value in settings.items():
+            if isinstance(value, str):
+                print(f"export {key.upper()}=\"{value}\"")
+            else:
+                print(f"export {key.upper()}={value}")
+        ' "$3")"
+
+        accelerate launch --mixed_precision="fp16" train_text_to_image_lora.py \
+            --pretrained_model_name_or_path=$MODEL_NAME \
+            --dataset_name=$DATASET_NAME --caption_column="text" \
+            --resolution=$RESOLUTION --random_flip \
+            --train_batch_size=$TRAIN_BATCH_SIZE \
+            --num_train_epochs=$NUM_TRAIN_EPOCHS --checkpointing_steps=$CHECKPOINTING_STEPS \
+            --learning_rate=$LEARNING_RATE --lr_scheduler=$LR_SCHEDULER --lr_warmup_steps=$LR_WARMUP_STEPS \
+            --seed=$SEED \
+            --output_dir="$OUTPUT_DIR" \
+            --validation_prompt="cute dragon creature" --report_to="wandb"
+    args:
+      - {inputValue: model_name}
+      - {inputValue: dataset_name}
+      - {inputValue: config}
+      - {outputPath: saved_model}
