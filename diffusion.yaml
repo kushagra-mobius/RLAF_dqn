@@ -33,6 +33,7 @@ implementation:
         echo "Parsing configuration using input: $2"
         
         # Parse config ($2) and export training parameters
+        # FIXED: Swapped internal single quotes for double quotes to prevent shell nesting errors
         eval "$(python3 -c '
         import json
         import sys
@@ -59,9 +60,9 @@ implementation:
 
         for key, value in settings.items():
             if isinstance(value, str):
-                print(f'export {key.upper()}="{value}"')
+                print(f"export {key.upper()}=\"{value}\"")
             else:
-                print(f'export {key.upper()}={value}')
+                print(f"export {key.upper()}={value}")
         ' "$2")"
         set --
         echo "Exported parameters confirmed: RESOLUTION=$RESOLUTION, LEARNING_RATE=$LEARNING_RATE"
