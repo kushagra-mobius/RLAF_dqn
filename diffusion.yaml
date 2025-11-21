@@ -27,10 +27,10 @@ implementation:
         
         # Arguments: $1=model_name, $2=dataset_name, $3=config, $4=saved_model_path (output dir)
         export MODEL_NAME="$1"
-        export DATASET_NAME="$2"
+        export DATASET_NAME="$3"
         export OUTPUT_DIR="$4"
         
-        # Parse config ($3) and export training parameters
+        # Parse config ($2) and export training parameters
         eval "$(python3 -c '
         import json
         import sys
@@ -60,7 +60,7 @@ implementation:
                 print(f'export {key.upper()}="{value}"')
             else:
                 print(f'export {key.upper()}={value}')
-        ' "$3")"
+        ' "$2")"
 
         accelerate launch --mixed_precision="fp16" train_text_to_image_lora.py \
             --pretrained_model_name_or_path="$MODEL_NAME" \
