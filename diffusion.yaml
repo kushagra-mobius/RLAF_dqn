@@ -63,6 +63,7 @@ implementation:
             else:
                 print(f'export {key.upper()}={value}')
         ' "$2")"
+        set --
         echo "Exported parameters confirmed: RESOLUTION=$RESOLUTION, LEARNING_RATE=$LEARNING_RATE"
 
         accelerate launch --mixed_precision="fp16" train_text_to_image_lora.py \
