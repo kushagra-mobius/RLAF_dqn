@@ -27,12 +27,12 @@ implementation:
         
         # Arguments: $0=model_name, $1=dataset_name, $2=config, $3=saved_model_path (output dir)
         export MODEL_NAME="$0"
-        export DATASET_NAME="$2"
+        export DATASET_NAME="$1"
         export OUTPUT_DIR="$3"
         
-        echo "Parsing configuration using input: $1"
+        echo "Parsing configuration using input: $2"
         
-        # Parse config ($1) and export training parameters
+        # Parse config ($2) and export training parameters
         eval "$(python3 -c '
         import json
         import sys
@@ -62,7 +62,7 @@ implementation:
                 print(f'export {key.upper()}="{value}"')
             else:
                 print(f'export {key.upper()}={value}')
-        ' "$1")"
+        ' "$2")"
         echo "Exported parameters confirmed: RESOLUTION=$RESOLUTION, LEARNING_RATE=$LEARNING_RATE"
 
         accelerate launch --mixed_precision="fp16" train_text_to_image_lora.py \
