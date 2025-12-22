@@ -5,7 +5,6 @@ outputs:
 implementation:
   container:
     image: gurpreetgandhi/nesy-factory:v38-gpu
-    serviceAccountName: default
     command:
       - sh
       - -c
@@ -98,7 +97,7 @@ implementation:
 
             # Generate a unique job name
             job_name = f"pytorch-ddp-{uuid.uuid4().hex[:6]}"
-            client = TrainingClient(namespace="default")
+            client = TrainingClient(namespace="admin")
 
             print(f"Submitting PyTorchJob: {job_name}")
 
