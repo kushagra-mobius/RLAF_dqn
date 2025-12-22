@@ -1,5 +1,5 @@
 name: Train Model
-description: Trains the RNN model.
+description: Trains the model using PyTorch DDP via Kubeflow Training SDK.
 outputs:
   - {name: random_result, type: String}
 implementation:
@@ -9,61 +9,130 @@ implementation:
       - sh
       - -c
       - |
-        python3 -m pip install --quiet kubeflow-training || \
-        python3 -m pip install --quiet kubeflow-training --user
-        exec "$0" "$@"
-      - python3
-      - -u
-      - -c
-      - |
-        from kubeflow.training import TrainingClient
-        from kubeflow.training.models import Trainer, RuntimeRef, PyTorch, Resources
-
+        # 1. Install the SDK
+        python3 -m pip install --quiet kubeflow-training
+        
+        # 2. Write the python script to a file (Required for function serialization to work)
+        cat << 'EOF' > trigger_job.py
         import os
         import argparse
+        import uuid
+        from kubeflow.training import TrainingClient
 
 
-        parser = argparse.ArgumentParser()
-        parser.add_argument('--random_result_path', type=str, required=True)
-        args = parser.parse_args()
+        # This function will be serialized and sent to the workers
+        def train_func():
+            import os
+            import torch
+            import torch.nn.functional as F
+            from torch.utils.data import DistributedSampler
+            from torchvision import datasets, transforms
+            import torch.distributed as dist
 
-        random_result_id = "test"
-        os.makedirs(os.path.dirname(args.random_result_path), exist_ok=True)
-        with open(args.random_result_path, 'w') as f:
-            f.write(random_result_id)
-        print(f"Random result ID {random_result_id} written to {args.random_result_path}")
+            # Setup PyTorch DDP
+            dist.init_process_group(backend="nccl")
+            Distributor = torch.nn.parallel.DistributedDataParallel
+            local_rank = int(os.environ.get("LOCAL_RANK", 0))
+            
+            print(f"Distributed Training - RANK: {dist.get_rank()}, LOCAL: {local_rank}")
 
-        TRAIN_CODE = 'import os\\nimport torch\\nimport torch.distributed as dist\\nfrom torch.distributed.fsdp import FSDP\\nfrom torch.distributed.fsdp.wrap import size_based_auto_wrap_policy\\nfrom torch.nn import Linear\\nfrom torch.optim import AdamW\\n\\ndef setup():\\n    dist.init_process_group("nccl")\\n    torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))\\n\\nclass ToyModel(torch.nn.Module):\\n    def __init__(self):\\n        super().__init__()\\n        self.net = Linear(1024, 1024)\\n\\n    def forward(self, x):\\n        return self.net(x)\\n\\ndef main():\\n    setup()\\n\\n    model = ToyModel().cuda()\\n    model = FSDP(\\n        model,\\n        auto_wrap_policy=size_based_auto_wrap_policy,\\n        device_id=torch.cuda.current_device(),\\n    )\\n\\n    opt = AdamW(model.parameters(), lr=1e-4)\\n\\n    for step in range(50):\\n        x = torch.randn(32, 1024, device="cuda")\\n        loss = model(x).sum()\\n        loss.backward()\\n        opt.step()\\n        opt.zero_grad()\\n\\n        if dist.get_rank() == 0:\\n            print(f"step={step}, loss={loss.item()}")\\n\\n    dist.destroy_process_group()\\n\\nif __name__ == "__main__":\\n    main()'
+            # Define Model
+            class Net(torch.nn.Module):
+                def __init__(self):
+                    super(Net, self).__init__()
+                    self.conv1 = torch.nn.Conv2d(1, 20, 5, 1)
+                    self.conv2 = torch.nn.Conv2d(20, 50, 5, 1)
+                    self.fc1 = torch.nn.Linear(4 * 4 * 50, 500)
+                    self.fc2 = torch.nn.Linear(500, 10)
 
-        client = TrainingClient(namespace="default")
+                def forward(self, x):
+                    x = F.relu(self.conv1(x))
+                    x = F.max_pool2d(x, 2, 2)
+                    x = F.relu(self.conv2(x))
+                    x = F.max_pool2d(x, 2, 2)
+                    x = x.view(-1, 4 * 4 * 50)
+                    x = F.relu(self.fc1(x))
+                    x = self.fc2(x)
+                    return F.log_softmax(x, dim=1)
 
-        trainer = Trainer(
-            name="fsdp2-single-script",
-            runtime_ref=RuntimeRef(
-                name="pytorch-distributed-runtime",
-                kind="ClusterRuntime",
-            ),
-            trainer=PyTorch(
-                num_workers=2,
-                num_processes_per_worker=8,
-                entrypoint="python",
-                args=["-c", TRAIN_CODE],
-                resources=Resources(
-                    limits={
-                        "nvidia.com/gpu": "8",
-                        "cpu": "16",
-                        "memory": "64Gi",
-                    }
-                ),
-                env={
-                    "NCCL_DEBUG": "INFO",
-                    "TORCH_DISTRIBUTED_DEBUG": "DETAIL",
+            # Setup Device
+            device = torch.device(f"cuda:{local_rank}")
+            model = Net().to(device)
+            model = Distributor(model)
+            optimizer = torch.optim.SGD(model.parameters(), lr=0.01, momentum=0.5)
+
+            # Setup Data
+            # Note: In a real pipeline, you might download data from S3/PVC here
+            dataset = datasets.FashionMNIST(
+                "./data",
+                download=True,
+                train=True,
+                transform=transforms.Compose([transforms.ToTensor()]),
+            )
+            train_loader = torch.utils.data.DataLoader(
+                dataset=dataset,
+                batch_size=128,
+                sampler=DistributedSampler(dataset),
+            )
+
+            # Training Loop
+            for epoch in range(3):
+                for batch_idx, (data, target) in enumerate(train_loader):
+                    data = data.to(device)
+                    target = target.to(device)
+
+                    optimizer.zero_grad()
+                    output = model(data)
+                    loss = F.nll_loss(output, target)
+                    loss.backward()
+                    optimizer.step()
+                    
+                    if batch_idx % 10 == 0 and dist.get_rank() == 0:
+                        print(f"Epoch: {epoch} Loss: {loss.item()}")
+
+        if __name__ == "__main__":
+            parser = argparse.ArgumentParser()
+            parser.add_argument('--random_result_path', type=str, required=True)
+            args = parser.parse_args()
+
+            # Generate a unique job name
+            job_name = f"pytorch-ddp-{uuid.uuid4().hex[:6]}"
+            client = TrainingClient(namespace="default")
+
+            print(f"Submitting PyTorchJob: {job_name}")
+
+            # Create the job
+            client.create_job(
+                name=job_name,
+                train_func=train_func,
+                base_image="pytorch/pytorch:2.1.0-cuda12.1-cudnn8-runtime", # Mandatory for GPU
+                num_workers=3,
+                resources_per_worker={
+                    "gpu": "1",
+                    "cpu": "2",
+                    "memory": "4Gi"
                 },
-            ),
-        )
+                packages_to_install=["torchvision"] # Install torchvision in the worker
+            )
 
-        client.create(trainer)
-    
+            # CRITICAL: Wait for the training to finish before finishing this KFP component
+            print(f"Waiting for job {job_name} to complete...")
+            try:
+                client.wait_for_job_conditions(name=job_name)
+                print("Job completed successfully.")
+            except Exception as e:
+                print(f"Job failed: {e}")
+                # You can uncomment this to fail the pipeline if training fails
+                # raise e 
+
+            # Write output
+            os.makedirs(os.path.dirname(args.random_result_path), exist_ok=True)
+            with open(args.random_result_path, 'w') as f:
+                f.write(job_name)
+        EOF
+
+        # 3. Execute the script
+        python3 trigger_job.py --random_result_path "$1"
     args:
       - --random_result
       - {outputPath: random_result}
