@@ -106,7 +106,7 @@ implementation:
                 name=job_name,
                 train_func=train_func,
                 base_image="pytorch/pytorch:2.1.0-cuda12.1-cudnn8-runtime", # Mandatory for GPU
-                num_workers=3,
+                num_workers=2,
                 resources_per_worker={
                     "gpu": "1",
                     "cpu": "2",
