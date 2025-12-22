@@ -5,6 +5,7 @@ outputs:
 implementation:
   container:
     image: gurpreetgandhi/nesy-factory:v38-gpu
+    serviceAccountName: default
     command:
       - sh
       - -c
