@@ -113,5 +113,5 @@ implementation:
         client.create(trainer)
     
     args:
-      - --random_result_path
+      - --random_result
       - {outputPath: random_result}
