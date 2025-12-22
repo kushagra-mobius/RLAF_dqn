@@ -21,7 +21,7 @@ implementation:
 
         import os
         import argparse
-        import textwrap  # <--- 1. ADD THIS IMPORT
+
 
         parser = argparse.ArgumentParser()
         parser.add_argument('--random_result_path', type=str, required=True)
@@ -33,55 +33,7 @@ implementation:
             f.write(random_result_id)
         print(f"Random result ID {random_result_id} written to {args.random_result_path}")
 
-        # 2. WRAP THE STRING IN textwrap.dedent() below
-        TRAIN_CODE = textwrap.dedent(r"""
-            import os
-            import torch
-            import torch.distributed as dist
-            from torch.distributed.fsdp import FSDP
-            from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy
-            from torch.nn import Linear
-            from torch.optim import AdamW
-
-            def setup():
-                dist.init_process_group("nccl")
-                torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
-
-            class ToyModel(torch.nn.Module):
-                def __init__(self):
-                    super().__init__()
-                    self.net = Linear(1024, 1024)
-
-                def forward(self, x):
-                    return self.net(x)
-
-            def main():
-                setup()
-
-                model = ToyModel().cuda()
-                model = FSDP(
-                    model,
-                    auto_wrap_policy=size_based_auto_wrap_policy,
-                    device_id=torch.cuda.current_device(),
-                )
-
-                opt = AdamW(model.parameters(), lr=1e-4)
-
-                for step in range(50):
-                    x = torch.randn(32, 1024, device="cuda")
-                    loss = model(x).sum()
-                    loss.backward()
-                    opt.step()
-                    opt.zero_grad()
-
-                    if dist.get_rank() == 0:
-                        print(f"step={step}, loss={loss.item()}")
-
-                dist.destroy_process_group()
-
-            if __name__ == "__main__":
-                main()
-            """)
+        TRAIN_CODE = 'import os\\nimport torch\\nimport torch.distributed as dist\\nfrom torch.distributed.fsdp import FSDP\\nfrom torch.distributed.fsdp.wrap import size_based_auto_wrap_policy\\nfrom torch.nn import Linear\\nfrom torch.optim import AdamW\\n\\ndef setup():\\n    dist.init_process_group("nccl")\\n    torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))\\n\\nclass ToyModel(torch.nn.Module):\\n    def __init__(self):\\n        super().__init__()\\n        self.net = Linear(1024, 1024)\\n\\n    def forward(self, x):\\n        return self.net(x)\\n\\ndef main():\\n    setup()\\n\\n    model = ToyModel().cuda()\\n    model = FSDP(\\n        model,\\n        auto_wrap_policy=size_based_auto_wrap_policy,\\n        device_id=torch.cuda.current_device(),\\n    )\\n\\n    opt = AdamW(model.parameters(), lr=1e-4)\\n\\n    for step in range(50):\\n        x = torch.randn(32, 1024, device="cuda")\\n        loss = model(x).sum()\\n        loss.backward()\\n        opt.step()\\n        opt.zero_grad()\\n\\n        if dist.get_rank() == 0:\\n            print(f"step={step}, loss={loss.item()}")\\n\\n    dist.destroy_process_group()\\n\\nif __name__ == "__main__":\\n    main()'
 
         client = TrainerClient(namespace="default")
 
