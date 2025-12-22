@@ -9,8 +9,8 @@ implementation:
       - sh
       - -c
       - |
-        python3 -m pip install --quiet kubeflow || \
-        python3 -m pip install --quiet kubeflow --user
+        python3 -m pip install --quiet kubeflow-training || \
+        python3 -m pip install --quiet kubeflow-training --user
         exec "$0" "$@"
       - python3
       - -u
