@@ -110,7 +110,7 @@ implementation:
                 resources_per_worker={
                     "gpu": "1",
                     "cpu": "2",
-                    "memory": "4Gi"
+                    "memory": "32Gi"
                 },
                 packages_to_install=["torchvision"] # Install torchvision in the worker
             )
