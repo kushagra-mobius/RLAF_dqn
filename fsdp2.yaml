@@ -1,0 +1,115 @@
+name: Train Model
+description: Trains the RNN model.
+outputs:
+  - {name: random_result, type: String}
+implementation:
+  container:
+    image: gurpreetgandhi/nesy-factory:v38-gpu
+    command:
+      - sh
+      - -c
+      - |
+        python3 -m pip install --quiet kubeflow || \
+        python3 -m pip install --quiet kubeflow --user
+        exec "$0" "$@"
+      - python3
+      - -u
+      - -c
+      - |
+        from kubeflow.training import TrainerClient
+        from kubeflow.training.models import Trainer, RuntimeRef, PyTorch, Resources
+
+        import os
+        import argparse
+
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--random_result_path', type=str, required=True)
+        args = parser.parse_args()
+
+        random_result_id = "test"
+        os.makedirs(os.path.dirname(args.random_result_path), exist_ok=True)
+        with open(args.random_result_path, 'w') as f:
+            f.write(random_result_id)
+        print(f"Random result ID {random_result_id} written to {args.random_result_path}")
+
+        TRAIN_CODE = r"""
+        import os
+        import torch
+        import torch.distributed as dist
+        from torch.distributed.fsdp import FSDP
+        from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy
+        from torch.nn import Linear
+        from torch.optim import AdamW
+
+        def setup():
+            dist.init_process_group("nccl")
+            torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
+
+        class ToyModel(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.net = Linear(1024, 1024)
+
+            def forward(self, x):
+                return self.net(x)
+
+        def main():
+            setup()
+
+            model = ToyModel().cuda()
+            model = FSDP(
+                model,
+                auto_wrap_policy=size_based_auto_wrap_policy,
+                device_id=torch.cuda.current_device(),
+            )
+
+            opt = AdamW(model.parameters(), lr=1e-4)
+
+            for step in range(50):
+                x = torch.randn(32, 1024, device="cuda")
+                loss = model(x).sum()
+                loss.backward()
+                opt.step()
+                opt.zero_grad()
+
+                if dist.get_rank() == 0:
+                    print(f"step={step}, loss={loss.item()}")
+
+            dist.destroy_process_group()
+
+        if __name__ == "__main__":
+            main()
+        """
+
+        client = TrainerClient(namespace="default")
+
+        trainer = Trainer(
+            name="fsdp2-single-script",
+            runtime_ref=RuntimeRef(
+                name="pytorch-distributed-runtime",
+                kind="ClusterRuntime",
+            ),
+            trainer=PyTorch(
+                num_workers=2,                 # nodes
+                num_processes_per_worker=8,    # GPUs per node
+                entrypoint="python",
+                args=["-c", TRAIN_CODE],
+                resources=Resources(
+                    limits={
+                        "nvidia.com/gpu": "8",
+                        "cpu": "16",
+                        "memory": "64Gi",
+                    }
+                ),
+                env={
+                    "NCCL_DEBUG": "INFO",
+                    "TORCH_DISTRIBUTED_DEBUG": "DETAIL",
+                },
+            ),
+        )
+
+        client.create(trainer)
+
+    args:
+      - --random_result_path
+      - {outputPath: random_result}
