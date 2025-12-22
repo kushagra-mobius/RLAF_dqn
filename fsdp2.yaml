@@ -108,7 +108,7 @@ implementation:
                 base_image="pytorch/pytorch:2.1.0-cuda12.1-cudnn8-runtime", # Mandatory for GPU
                 num_workers=2,
                 resources_per_worker={
-                    "gpu": "1",
+                    "nvidia.com/gpu": "1",
                     "cpu": "2",
                     "memory": "32Gi"
                 },
