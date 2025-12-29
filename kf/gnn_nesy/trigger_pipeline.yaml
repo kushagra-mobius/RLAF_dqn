@@ -10,6 +10,7 @@ inputs:
   - {name: model_config, type: String, description: "JSON string for model configuration"}
   - {name: model_name, type: String, description: "Name of the model to be used"}
   - {name: execution_id, type: String, description: "exec id for the run"}
+  - {name: projectId, type: String, description: "Project ID"}
 implementation:
   container:
     image: python:3.8-slim
@@ -41,6 +42,7 @@ implementation:
         parser.add_argument('--model_config', type=str, required=True, help='JSON string for model configuration.')
         parser.add_argument('--model_name', type=str, required=True, help='Name of the model to be used.')
         parser.add_argument('--execution_id', type=str, required=True, help='exec id for the run.')
+        parser.add_argument('--projectId', type=str, default="-1", help='Project ID')
         args = parser.parse_args()
 
         args.pickle_cdn_url = args.pickle_cdn_url.replace("$$", "$$$")
@@ -70,6 +72,9 @@ implementation:
             },
             "version": 1
         }
+
+        if args.projectId != "-1":
+            payload["parameters"]["projectId"] = args.projectId
 
         print(f"Triggering pipeline at: {trigger_url}")
         print(f"Payload: {json.dumps(payload, indent=2)}")
@@ -140,3 +145,5 @@ implementation:
       - {inputValue: model_name}
       - --execution_id
       - {inputValue: execution_id}
+      - --projectId
+      - {inputValue: projectId}
