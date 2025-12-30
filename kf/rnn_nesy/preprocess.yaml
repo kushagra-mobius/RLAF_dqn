@@ -10,7 +10,7 @@ outputs:
   - {name: processed_data, type: Dataset}
 implementation:
   container:
-    image: nikhilv215/nesy-factory:v22
+    image: nikhilv215/nesy-factory:v23
     command:
       - sh
       - -c

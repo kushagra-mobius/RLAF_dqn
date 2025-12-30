@@ -9,7 +9,7 @@ outputs:
   - {name: epoch_loss, type: String}
 implementation:
   container:
-    image: kushagra4761/nesy-factory-library
+    image: nikhilv215/nesy-factory:v23
     command:
       - sh
       - -c
