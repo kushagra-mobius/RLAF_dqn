@@ -8,7 +8,7 @@ outputs:
   - {name: tasks, type: Dataset}
 implementation:
   container:
-    image: kushagra4761/nesy-factory-library
+    image: nikhilv215/nesy-factory:v23
     command:
       - sh
       - -c
