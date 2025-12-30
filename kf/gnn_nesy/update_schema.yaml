@@ -49,6 +49,8 @@ implementation:
         parser.add_argument('--float_keys_json', type=str, required=False)
         args = parser.parse_args()
 
+        execution_id_int = int(args.execution_id)
+
         with open(args.bearer_auth_token, 'r') as f:
             bearer_auth_token = f.read().strip()
 
@@ -90,12 +92,12 @@ implementation:
                 if args.architecture_type != '-1':
                     row['architecture_type'] = args.architecture_type
                 if 'execution_id' not in row and args.execution_id != '-1':
-                    row['execution_id']=args.execution_id
-                    
-            
+                    row['execution_id']=execution_id_int
+                   
+           
             create_url = f"{args.domain}/pi-entity-instances-service/v2.0/schemas/{args.schema_id}/instances"
             create_payload = {"data": rows_to_create}
-            
+           
             print(f" Creating Multiple Rows ")
             print(f"Request URL: POST {create_url}")
             print(f"Request Headers: {json.dumps(headers)}")
@@ -120,11 +122,11 @@ implementation:
                 "dbType": "TIDB",
                 "ownedOnly": True,
                 "filter": {
-                    "execution_id": args.execution_id
+                    "execution_id": execution_id_int
                 }
             }
-            
-            print(f" Checking for Existing Row with execution_id: {args.execution_id} ")
+           
+            print(f" Checking for Existing Row with execution_id: {execution_id_int} ")
             print(f"Request URL: POST {check_url}")
             print(f"Request Headers: {json.dumps(headers)}")
             print(f"Request Payload: {json.dumps(check_payload, indent=2)}")
@@ -133,7 +135,7 @@ implementation:
                 response = http.post(check_url, headers=headers, data=json.dumps(check_payload), timeout=60)
                 response.raise_for_status()
                 response_data = response.json()
-                
+               
                 if response_data.get("content"):
                     print(f" Instance Found: Updating Row ")
                     patch_requests = []
@@ -167,7 +169,7 @@ implementation:
                                 {
                                     "field": "execution_id",
                                     "operator": "EQUAL",
-                                    "value": args.execution_id
+                                    "value": execution_id_int
                                 }
                             ]
                         },
@@ -177,11 +179,11 @@ implementation:
                             }
                         ]
                     }
-                    
+                   
                     print(f"Request URL: PATCH {update_url}")
                     print(f"Request Headers: {json.dumps(headers)}")
                     print(f"Request Payload: {json.dumps(update_payload, indent=2)}")
-                    
+                   
                     response = http.patch(update_url, headers=headers, data=json.dumps(update_payload), timeout=60)
                     response.raise_for_status()
                     print("Successfully updated the model instance.")
@@ -205,8 +207,8 @@ implementation:
 
                         if value_to_add is not None:
                             creation_data[column] = value_to_add
-                    
-                    creation_data['execution_id'] = args.execution_id
+                   
+                    creation_data['execution_id'] = execution_id_int
                     if args.model_id != '-1':
                         creation_data['model_id'] = args.model_id
                     if args.tenant_id != '-1':
@@ -224,14 +226,14 @@ implementation:
                     print(f"Request URL: POST {create_url}")
                     print(f"Request Headers: {json.dumps(headers)}")
                     print(f"Request Payload: {json.dumps(create_payload, indent=2)}")
-                    
+                   
                     response = http.post(create_url, headers=headers, data=json.dumps(create_payload), timeout=60)
                     if response.status_code >= 400:
                         print(f"Error: {response.status_code} {response.reason}")
                         print(f"Response Content: {response.text}")
                     response.raise_for_status()
                     print("Successfully created a new model instance.")
-                    
+                   
                 print(f"Response: {response.json()}")
 
             except requests.exceptions.RequestException as e:
