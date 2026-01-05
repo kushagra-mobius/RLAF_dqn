@@ -43,7 +43,7 @@ outputs:
     type: String
 implementation:
   container:
-    image: gurpreetgandhi/nesy-factory:v12
+    image: nikhilv215/nesy-factory:v23
     command:
       - sh
       - -c
