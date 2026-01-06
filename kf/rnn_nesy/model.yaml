@@ -2,6 +2,7 @@ name: Initialize Model
 description: Initializes the RNN model.
 inputs:
   - {name: config, type: String}
+  - {name: weights_url, type: String}
 outputs:
   - {name: model, type: Model}
 implementation:
@@ -21,6 +22,9 @@ implementation:
         import os
         import pickle
         import sys
+        import torch
+        import requests
+        import io
         
         
         from nesy_factory.RNNs.simple_rnn import SimpleRNN
@@ -29,8 +33,9 @@ implementation:
         parser = argparse.ArgumentParser()
         parser.add_argument('--config', type=str, required=True)
         parser.add_argument('--model', type=str, required=True)
+        parser.add_argument('--weights_url', type=str, default='-1')
         args = parser.parse_args()
-
+        args.weights_url = args.weights_url.replace("$$", "$$$")
         config = json.loads(args.config)
 
         model_config = {
@@ -52,6 +57,23 @@ implementation:
         else:
             raise ValueError("Invalid model type specified")
 
+        if args.weights_url != '-1':
+            print(f"Downloading weights from {args.weights_url}")
+            try:
+                # Use a request session with retries/timeout for robustness
+                response = requests.get(args.weights_url, timeout=60)
+                response.raise_for_status()
+                # Use io.BytesIO to load the model from memory without saving to disk
+                buffer = io.BytesIO(response.content)
+                state_dict = torch.load(buffer, map_location=torch.device('cpu'))
+                model_obj.load_state_dict(state_dict)
+                print("Successfully loaded weights from URL.")
+            except requests.exceptions.RequestException as req_e:
+                print(f"Warning: Failed to download weights from URL: {args.weights_url}. Request Error: {req_e}")
+            except Exception as e:
+                print(f"Warning: Failed to load weights from downloaded content. Error: {e}")
+            # Continue without loading weights if download/load fails
+
         os.makedirs(os.path.dirname(args.model), exist_ok=True)
         with open(args.model, "wb") as f:
             pickle.dump(model_obj, f)
@@ -60,5 +82,7 @@ implementation:
     args:
       - --config
       - {inputValue: config}
+      - --weights_url
+      - {inputValue: weights_url}
       - --model
       - {outputPath: model}
