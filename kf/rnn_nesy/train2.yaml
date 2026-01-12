@@ -1,0 +1,213 @@
+name: Train Model
+description: Trains the RNN model.
+inputs:
+  - {name: model, type: Model}
+  - {name: train_loader, type: Dataset}
+  - {name: config, type: String}
+  - {name: fsdp2_enabled, type: String, default: 'false', description: 'Enable FSDP2 distributed training'}
+outputs:
+  - {name: trained_model, type: Model}
+  - {name: epoch_loss, type: String}
+implementation:
+  container:
+    image: nikhilv215/nesy-factory:v23
+    command:
+      - sh
+      - -c
+      - |
+        python3 -m pip install --quiet kubeflow-training
+
+        cat << 'EOF' > trigger_job.py
+        import argparse
+        import json
+        import os
+        import pickle
+        import sys
+        import uuid
+        import torch
+        from nesy_factory.RNNs.simple_rnn import SimpleRNN
+        from nesy_factory.RNNs.gru import GRU
+        
+        def train_local(args):
+            print("Starting Local Training")
+            config = json.loads(args.config)
+
+            with open(args.model, 'rb') as f:
+                model_obj = pickle.load(f)
+
+            with open(args.train_loader, 'rb') as f:
+                train_loader_obj = pickle.load(f)
+
+            print("Starting Model Training")
+            epoch_loss_data = []
+            for epoch in range(config['epochs']):
+                model_obj.train()
+                total_train_loss = 0
+                for inputs, labels in train_loader_obj:
+                    loss = model_obj.train_step((inputs, labels))
+                    total_train_loss += loss
+                
+                avg_train_loss = total_train_loss / len(train_loader_obj)
+                print(f"Epoch {epoch+1:02d}/{config['epochs']} | Train Loss: {avg_train_loss:.6f}")
+                epoch_loss_data.append({'epoch': epoch, 'loss': avg_train_loss})
+            
+            output_dir_epoch_loss = os.path.dirname(args.epoch_loss)
+            if output_dir_epoch_loss and not os.path.exists(output_dir_epoch_loss):
+                os.makedirs(output_dir_epoch_loss, exist_ok=True)
+            with open(args.epoch_loss, 'w') as f:
+                f.write(json.dumps(epoch_loss_data))
+            print("Finished Model Training ")
+
+            os.makedirs(os.path.dirname(args.trained_model), exist_ok=True)
+            torch.save(model_obj.state_dict(), args.trained_model)
+
+            print(f"Saved trained model to {args.trained_model}")
+
+        def train_func_distributed():
+            import os
+            import json
+            import pickle
+            import torch
+            import torch.nn as nn
+            import torch.distributed as dist
+            from torch.utils.data import DistributedSampler, DataLoader
+            from nesy_factory.RNNs.simple_rnn import SimpleRNN
+            from nesy_factory.RNNs.gru import GRU
+            
+            def get_device(local_rank):
+                 if torch.cuda.is_available():
+                     return torch.device(f"cuda:{local_rank}")
+                 return torch.device("cpu")
+
+            dist.init_process_group(backend="nccl")
+            local_rank = int(os.environ.get("LOCAL_RANK", 0))
+            device = get_device(local_rank)
+            
+            print(f"Distributed Training - RANK: {dist.get_rank()}, LOCAL: {local_rank}")
+
+            model_path = os.environ.get("KF_MODEL_PATH")
+            train_loader_path = os.environ.get("KF_TRAIN_LOADER_PATH")
+            config_str = os.environ.get("KF_CONFIG")
+            trained_model_path = os.environ.get("KF_TRAINED_MODEL_PATH")
+            epoch_loss_path = os.environ.get("KF_EPOCH_LOSS_PATH")
+            
+            config = json.loads(config_str)
+
+            with open(model_path, 'rb') as f:
+                model_obj = pickle.load(f)
+            
+            model_obj.to(device)
+            
+            Distributor = torch.nn.parallel.DistributedDataParallel
+            model = Distributor(model_obj, device_ids=[local_rank])
+            
+            with open(train_loader_path, 'rb') as f:
+                train_loader_orig = pickle.load(f)
+            
+            dataset = train_loader_orig.dataset
+            sampler = DistributedSampler(dataset)
+            train_loader = DataLoader(dataset, batch_size=train_loader_orig.batch_size, sampler=sampler)
+
+            optimizer = model.module.optimizer
+            criterion = model.module.criterion
+            
+            epoch_loss_data = []
+            
+            for epoch in range(config['epochs']):
+                model.train()
+                sampler.set_epoch(epoch)
+                total_loss = torch.zeros(1, device=device)
+                
+                for inputs, labels in train_loader:
+                    inputs, labels = inputs.to(device), labels.to(device)
+                    
+                    optimizer.zero_grad()
+                    outputs = model(inputs)
+                    
+                    if isinstance(criterion, nn.Module):
+                        loss = criterion(outputs, labels)
+                    else:
+                        loss = criterion(outputs, labels)
+                        
+                    loss.backward()
+                    optimizer.step()
+                    
+                    total_loss += loss.detach() * inputs.size(0)
+                
+                dist.all_reduce(total_loss, op=dist.ReduceOp.SUM)
+                
+                if dist.get_rank() == 0:
+                     avg_loss = total_loss.item() / len(dataset)
+                     print(f"Epoch {epoch+1}/{config['epochs']} Loss: {avg_loss}")
+                     epoch_loss_data.append({'epoch': epoch, 'loss': avg_loss})
+
+            if dist.get_rank() == 0:
+                os.makedirs(os.path.dirname(trained_model_path), exist_ok=True)
+                torch.save(model.module.state_dict(), trained_model_path)
+                
+                os.makedirs(os.path.dirname(epoch_loss_path), exist_ok=True)
+                with open(epoch_loss_path, 'w') as f:
+                    f.write(json.dumps(epoch_loss_data))
+                print(f"Saved trained model to {trained_model_path}")
+
+        if __name__ == "__main__":
+            parser = argparse.ArgumentParser()
+            parser.add_argument('--model', type=str, required=True)
+            parser.add_argument('--train_loader', type=str, required=True)
+            parser.add_argument('--config', type=str, required=True)
+            parser.add_argument('--trained_model', type=str, required=True)
+            parser.add_argument('--epoch_loss', type=str, required=True)
+            parser.add_argument('--fsdp2_enabled', type=str, default='false')
+            args = parser.parse_args()
+            
+            if args.fsdp2_enabled.lower() == 'true':
+                from kubeflow.training import TrainingClient
+                
+                job_name = f"rnn-fsdp2-{uuid.uuid4().hex[:6]}"
+                client = TrainingClient(namespace="admin")
+                
+                env_vars = {
+                    "KF_MODEL_PATH": args.model,
+                    "KF_TRAIN_LOADER_PATH": args.train_loader,
+                    "KF_CONFIG": args.config,
+                    "KF_TRAINED_MODEL_PATH": args.trained_model,
+                    "KF_EPOCH_LOSS_PATH": args.epoch_loss
+                }
+                
+                print(f"Submitting PyTorchJob: {job_name}")
+                client.create_job(
+                    name=job_name,
+                    train_func=train_func_distributed,
+                    base_image="nikhilv215/nesy-factory:v23",
+                    num_workers=2,
+                    resources_per_worker={
+                        "nvidia.com/gpu": "1",
+                        "cpu": "2",
+                        "memory": "32Gi"
+                    },
+                    packages_to_install=[],
+                    worker_main_container_envs=env_vars
+                )
+                
+                print(f"Waiting for job {job_name}...")
+                client.wait_for_job_conditions(name=job_name)
+                print("Job completed.")
+                
+            else:
+                train_local(args)
+        EOF
+
+        python3 trigger_job.py \
+          --model "$0" \
+          --train_loader "$1" \
+          --config "$2" \
+          --trained_model "$3" \
+          --epoch_loss "$4" \
+          --fsdp2_enabled "$5"
+    args:
+      - {inputPath: model}
+      - {inputPath: train_loader}
+      - {inputValue: config}
+      - {outputPath: trained_model}
+      - {outputPath: epoch_loss}
+      - {inputValue: fsdp2_enabled}
