@@ -39,10 +39,10 @@ implementation:
             else:
                 print("CUDA is not available. Running on CPU.")
 
-        from nesy_factory.RNNs.simple_rnn import SimpleRNN
-        from nesy_factory.RNNs.gru import GRU
         
         def train_local(args):
+            from nesy_factory.RNNs.simple_rnn import SimpleRNN
+            from nesy_factory.RNNs.gru import GRU
             print("Starting Local Training")
             config = json.loads(args.config)
 
