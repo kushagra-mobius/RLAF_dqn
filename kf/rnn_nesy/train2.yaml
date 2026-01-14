@@ -25,6 +25,21 @@ implementation:
         import sys
         import uuid
         import torch
+
+        def print_gpu_details():
+            if torch.cuda.is_available():
+                print("--- GPU Details ---")
+                print(f"CUDA is available: {torch.cuda.is_available()}")
+                print(f"Number of GPUs: {torch.cuda.device_count()}")
+                for i in range(torch.cuda.device_count()):
+                    print(f"GPU {i}: {torch.cuda.get_device_name(i)}")
+                    props = torch.cuda.get_device_properties(i)
+                    print(f"  Memory Total: {props.total_memory / (1024**3):.2f} GB")
+                print("-------------------")
+            else:
+                print("CUDA is not available. Running on CPU.")
+
+        from torch.distributed.fsdp import fully_shard
         from nesy_factory.RNNs.simple_rnn import SimpleRNN
         from nesy_factory.RNNs.gru import GRU
         
@@ -37,7 +52,9 @@ implementation:
 
             with open(args.train_loader, 'rb') as f:
                 train_loader_obj = pickle.load(f)
-
+            for layer in model.layers:
+                fully_shard(layer)
+            fully_shard(model)
             print("Starting Model Training")
             epoch_loss_data = []
             for epoch in range(config['epochs']):
@@ -151,6 +168,7 @@ implementation:
                 print(f"Saved trained model to {trained_model_path}")
 
         if __name__ == "__main__":
+            print_gpu_details()
             parser = argparse.ArgumentParser()
             parser.add_argument('--model', type=str, required=True)
             parser.add_argument('--train_loader', type=str, required=True)
@@ -160,7 +178,7 @@ implementation:
             parser.add_argument('--fsdp2_enabled', type=str, default='false')
             args = parser.parse_args()
             
-            if args.fsdp2_enabled.lower() == 'true':
+            if args.fsdp2_enabled.lower() == 'false':
                 from kubeflow.training import TrainingClient
                 
                 job_name = f"rnn-fsdp2-{uuid.uuid4().hex[:6]}"
