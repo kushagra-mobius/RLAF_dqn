@@ -39,7 +39,6 @@ implementation:
             else:
                 print("CUDA is not available. Running on CPU.")
 
-        from torch.distributed.fsdp import fully_shard
         from nesy_factory.RNNs.simple_rnn import SimpleRNN
         from nesy_factory.RNNs.gru import GRU
         
@@ -52,9 +51,6 @@ implementation:
 
             with open(args.train_loader, 'rb') as f:
                 train_loader_obj = pickle.load(f)
-            for layer in model.layers:
-                fully_shard(layer)
-            fully_shard(model)
             print("Starting Model Training")
             epoch_loss_data = []
             for epoch in range(config['epochs']):
@@ -88,6 +84,7 @@ implementation:
             import torch.nn as nn
             import torch.distributed as dist
             from torch.utils.data import DistributedSampler, DataLoader
+            from torch.distributed.fsdp import fully_shard
             from nesy_factory.RNNs.simple_rnn import SimpleRNN
             from nesy_factory.RNNs.gru import GRU
             
@@ -115,8 +112,11 @@ implementation:
             
             model_obj.to(device)
             
-            Distributor = torch.nn.parallel.DistributedDataParallel
-            model = Distributor(model_obj, device_ids=[local_rank])
+            # FSDP2 sharding
+            for layer in model_obj.layers:
+                fully_shard(layer)
+            fully_shard(model_obj)
+            model = model_obj
             
             with open(train_loader_path, 'rb') as f:
                 train_loader_orig = pickle.load(f)
@@ -125,8 +125,8 @@ implementation:
             sampler = DistributedSampler(dataset)
             train_loader = DataLoader(dataset, batch_size=train_loader_orig.batch_size, sampler=sampler)
 
-            optimizer = model.module.optimizer
-            criterion = model.module.criterion
+            optimizer = model.optimizer
+            criterion = model.criterion
             
             epoch_loss_data = []
             
@@ -160,7 +160,7 @@ implementation:
 
             if dist.get_rank() == 0:
                 os.makedirs(os.path.dirname(trained_model_path), exist_ok=True)
-                torch.save(model.module.state_dict(), trained_model_path)
+                torch.save(model.state_dict(), trained_model_path)
                 
                 os.makedirs(os.path.dirname(epoch_loss_path), exist_ok=True)
                 with open(epoch_loss_path, 'w') as f:
@@ -178,7 +178,7 @@ implementation:
             parser.add_argument('--fsdp2_enabled', type=str, default='false')
             args = parser.parse_args()
             
-            if args.fsdp2_enabled.lower() == 'false':
+            if args.fsdp2_enabled.lower() == 'true':
                 from kubeflow.training import TrainingClient
                 
                 job_name = f"rnn-fsdp2-{uuid.uuid4().hex[:6]}"
