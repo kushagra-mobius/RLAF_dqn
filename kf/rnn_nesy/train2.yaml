@@ -26,6 +26,15 @@ implementation:
         import uuid
         import torch
 
+        original_import = __builtins__.__import__
+        def block_torchvision(name, *args, **kwargs):
+            if "torchvision" in name:
+                import types
+                dummy = types.ModuleType(name)
+                sys.modules[name] = dummy
+                return dummy
+            return original_import(name, *args, **kwargs)
+        __builtins__.__import__ = block_torchvision
         def print_gpu_details():
             if torch.cuda.is_available():
                 print("--- GPU Details ---")
