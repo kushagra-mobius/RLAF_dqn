@@ -221,7 +221,7 @@ implementation:
                         "cpu": "2",
                         "memory": "32Gi"
                     },
-                    packages_to_install=[],
+                    packages_to_install=["torch==2.6.0"],
                     env_vars=env_vars
                 )
                 
