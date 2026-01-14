@@ -92,6 +92,15 @@ implementation:
             import torch
             import torch.nn as nn
             import torch.distributed as dist
+            original_import = __builtins__.__import__
+            def block_torchvision(name, *args, **kwargs):
+                if "torchvision" in name:
+                    import types
+                    dummy = types.ModuleType(name)
+                    sys.modules[name] = dummy
+                    return dummy
+                return original_import(name, *args, **kwargs)
+            __builtins__.__import__ = block_torchvision
             from torch.utils.data import DistributedSampler, DataLoader
             from torch.distributed.fsdp import fully_shard
             from nesy_factory.RNNs.simple_rnn import SimpleRNN
@@ -205,7 +214,7 @@ implementation:
                 client.create_job(
                     name=job_name,
                     train_func=train_func_distributed,
-                    base_image="nikhilv215/nesy-factory:v23",
+                    base_image="gurpreetgandhi/nesy-factory:v38-gpu",
                     num_workers=2,
                     resources_per_worker={
                         "nvidia.com/gpu": "1",
