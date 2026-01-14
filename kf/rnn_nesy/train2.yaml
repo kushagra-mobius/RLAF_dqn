@@ -222,7 +222,13 @@ implementation:
                         "cpu": "2",
                         "memory": "32Gi"
                     },
-                    packages_to_install=["torch==2.6.0"],
+                    packages_to_install=[
+                        "torch==2.6.0",
+                        "torch-sparse",
+                        "torch-scatter",
+                        "torch-cluster",
+                        "torch-spline-conv",
+                    ],
                     env_vars=env_vars
                 )
                 
