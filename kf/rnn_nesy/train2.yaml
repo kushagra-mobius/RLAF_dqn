@@ -224,10 +224,12 @@ implementation:
                     },
                     packages_to_install=[
                         "torch==2.6.0",
-                        "torch-sparse",
                         "torch-scatter",
+                        "torch-sparse",
                         "torch-cluster",
                         "torch-spline-conv",
+                        "--extra-index-url", "https://download.pytorch.org/whl/cu124",
+                        "--find-links", "https://data.pyg.org/whl/torch-2.6.0+cu124.html"
                     ],
                     env_vars=env_vars
                 )
