@@ -224,6 +224,9 @@ implementation:
                     },
                     packages_to_install=[
                         "torch==2.6.0",
+                        "torchvision==0.21.0",
+                        "torchaudio==2.6.0",
+                        "xformers",
                         "torch-scatter",
                         "torch-sparse",
                         "torch-cluster",
@@ -256,3 +259,4 @@ implementation:
       - {outputPath: trained_model}
       - {outputPath: epoch_loss}
       - {inputValue: fsdp2_enabled}
+
