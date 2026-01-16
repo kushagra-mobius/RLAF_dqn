@@ -91,8 +91,23 @@ implementation:
             import pickle
             import torch
             import sys
+            import subprocess
             import torch.nn as nn
             import torch.distributed as dist
+            
+            # Force reinstall PyG extensions compatible with current torch
+            print(f"Worker process started. Torch version: {torch.__version__}")
+            try:
+                # Use a specific index and find-links to get the right binaries
+                subprocess.check_call([
+                    sys.executable, "-m", "pip", "install", "--upgrade", "--force-reinstall",
+                    "torch-scatter", "torch-sparse", "torch-cluster", "torch-spline-conv",
+                    "-f", f"https://data.pyg.org/whl/torch-{torch.__version__}.html"
+                ])
+                print("Successfully reinstalled PyG extensions")
+            except Exception as e:
+                print(f"Error during PyG extensions reinstall: {e}")
+
             original_import = __builtins__.__import__
             def block_torchvision(name, *args, **kwargs):
                 if "torchvision" in name:
@@ -102,6 +117,7 @@ implementation:
                     return dummy
                 return original_import(name, *args, **kwargs)
             __builtins__.__import__ = block_torchvision
+            
             from torch.utils.data import DistributedSampler, DataLoader
             from torch.distributed.fsdp import fully_shard
             from nesy_factory.RNNs.simple_rnn import SimpleRNN
@@ -227,12 +243,7 @@ implementation:
                         "torchvision==0.21.0",
                         "torchaudio==2.6.0",
                         "xformers",
-                        "torch-scatter",
-                        "torch-sparse",
-                        "torch-cluster",
-                        "torch-spline-conv",
                         "--extra-index-url", "https://download.pytorch.org/whl/cu124",
-                        "--find-links", "https://data.pyg.org/whl/torch-2.6.0+cu124.html"
                     ],
                     env_vars=env_vars
                 )
