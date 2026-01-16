@@ -96,17 +96,23 @@ implementation:
             import torch.distributed as dist
             
             # Force reinstall PyG extensions compatible with current torch
-            print(f"Worker process started. Torch version: {torch.__version__}")
+            # Using --no-deps to avoid conflicts with already installed numpy/scipy
+            local_rank = int(os.environ.get("LOCAL_RANK", 0))
+            print(f"Worker process started (Local Rank: {local_rank}). Torch version: {torch.__version__}")
             try:
-                # Use a specific index and find-links to get the right binaries
+                # Add a small delay for higher ranks to avoid potential race conditions during installation
+                if local_rank > 0:
+                    import time
+                    time.sleep(5 * local_rank)
+                
                 subprocess.check_call([
-                    sys.executable, "-m", "pip", "install", "--upgrade", "--force-reinstall",
+                    sys.executable, "-m", "pip", "install", "--upgrade", "--force-reinstall", "--no-deps",
                     "torch-scatter", "torch-sparse", "torch-cluster", "torch-spline-conv",
                     "-f", f"https://data.pyg.org/whl/torch-{torch.__version__}.html"
                 ])
-                print("Successfully reinstalled PyG extensions")
+                print(f"Successfully reinstalled PyG extensions on local rank {local_rank}")
             except Exception as e:
-                print(f"Error during PyG extensions reinstall: {e}")
+                print(f"Error during PyG extensions reinstall on local rank {local_rank}: {e}")
 
             original_import = __builtins__.__import__
             def block_torchvision(name, *args, **kwargs):
