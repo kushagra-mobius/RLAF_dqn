@@ -10,7 +10,7 @@ outputs:
   - {name: epoch_loss, type: String}
 implementation:
   container:
-    image: gurpreetgandhi/nesy-factory:v38-gpu
+    image: kushagra4761/nesy-factory-gpu:t2.6
     command:
       - sh
       - -c
@@ -26,15 +26,6 @@ implementation:
         import uuid
         import torch
 
-        original_import = __builtins__.__import__
-        def block_torchvision(name, *args, **kwargs):
-            if "torchvision" in name:
-                import types
-                dummy = types.ModuleType(name)
-                sys.modules[name] = dummy
-                return dummy
-            return original_import(name, *args, **kwargs)
-        __builtins__.__import__ = block_torchvision
         def print_gpu_details():
             if torch.cuda.is_available():
                 print("--- GPU Details ---")
@@ -95,34 +86,8 @@ implementation:
             import torch.nn as nn
             import torch.distributed as dist
             
-            # Force reinstall PyG extensions compatible with current torch
-            # Using --no-deps to avoid conflicts with already installed numpy/scipy
             local_rank = int(os.environ.get("LOCAL_RANK", 0))
             print(f"Worker process started (Local Rank: {local_rank}). Torch version: {torch.__version__}")
-            try:
-                # Add a small delay for higher ranks to avoid potential race conditions during installation
-                if local_rank > 0:
-                    import time
-                    time.sleep(5 * local_rank)
-                
-                subprocess.check_call([
-                    sys.executable, "-m", "pip", "install", "--upgrade", "--force-reinstall", "--no-deps",
-                    "torch-scatter", "torch-sparse", "torch-cluster", "torch-spline-conv",
-                    "-f", f"https://data.pyg.org/whl/torch-{torch.__version__}.html"
-                ])
-                print(f"Successfully reinstalled PyG extensions on local rank {local_rank}")
-            except Exception as e:
-                print(f"Error during PyG extensions reinstall on local rank {local_rank}: {e}")
-
-            original_import = __builtins__.__import__
-            def block_torchvision(name, *args, **kwargs):
-                if "torchvision" in name:
-                    import types
-                    dummy = types.ModuleType(name)
-                    sys.modules[name] = dummy
-                    return dummy
-                return original_import(name, *args, **kwargs)
-            __builtins__.__import__ = block_torchvision
             
             from torch.utils.data import DistributedSampler, DataLoader
             from torch.distributed.fsdp import fully_shard
@@ -237,20 +202,14 @@ implementation:
                 client.create_job(
                     name=job_name,
                     train_func=train_func_distributed,
-                    base_image="gurpreetgandhi/nesy-factory:v38-gpu",
+                    base_image="kushagra4761/nesy-factory-gpu:t2.6",
                     num_workers=2,
                     resources_per_worker={
                         "nvidia.com/gpu": "1",
                         "cpu": "2",
                         "memory": "32Gi"
                     },
-                    packages_to_install=[
-                        "torch==2.6.0",
-                        "torchvision==0.21.0",
-                        "torchaudio==2.6.0",
-                        "xformers",
-                        "--extra-index-url", "https://download.pytorch.org/whl/cu124",
-                    ],
+                    packages_to_install=[],
                     env_vars=env_vars
                 )
                 
