@@ -209,7 +209,6 @@ implementation:
                         "cpu": "2",
                         "memory": "32Gi"
                     },
-                    packages_to_install=[],
                     env_vars=env_vars
                 )
                 
