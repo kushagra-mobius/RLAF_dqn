@@ -48,6 +48,10 @@ implementation:
 
             with open(args.model, 'rb') as f:
                 model_obj = pickle.load(f)
+            
+            device = config.get('device', 'cuda' if torch.cuda.is_available() else 'cpu')
+            model_obj.to(device)
+            model_obj.device = torch.device(device)
 
             with open(args.train_loader, 'rb') as f:
                 train_loader_obj = pickle.load(f)

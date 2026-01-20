@@ -57,6 +57,9 @@ implementation:
             model_obj = GRU(model_config)
         else:
             raise ValueError("Invalid model type specified")
+        
+        # Ensure model and its parameters are on the correct device
+        model_obj.to(config['device'])
 
         if args.weights_url != '-1':
             print(f"Downloading weights from {args.weights_url}")
