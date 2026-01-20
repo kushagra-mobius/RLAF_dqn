@@ -190,46 +190,18 @@ implementation:
             
             if args.fsdp2_enabled.lower() == 'true':
                 from kubeflow.training import TrainingClient
-                from kubernetes.client import V1Volume, V1VolumeMount
-                import shutil
-
-                # Shared PVC paths
-                SHARED_ROOT = "/mnt/shared"
-                INPUT_DIR = f"{SHARED_ROOT}/inputs"
-                OUTPUT_DIR = f"{SHARED_ROOT}/outputs"
-
-                os.makedirs(INPUT_DIR, exist_ok=True)
-                os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-                # Copy pipeline artifacts to shared volume
-                shutil.copy(args.model, f"{INPUT_DIR}/model.pkl")
-                shutil.copy(args.train_loader, f"{INPUT_DIR}/train_loader.pkl")
-
+                
                 job_name = f"rnn-fsdp2-{uuid.uuid4().hex[:6]}"
                 client = TrainingClient(namespace="admin")
-
+                
                 env_vars = {
-                    "KF_MODEL_PATH": f"{INPUT_DIR}/model.pkl",
-                    "KF_TRAIN_LOADER_PATH": f"{INPUT_DIR}/train_loader.pkl",
+                    "KF_MODEL_PATH": args.model,
+                    "KF_TRAIN_LOADER_PATH": args.train_loader,
                     "KF_CONFIG": args.config,
-                    "KF_TRAINED_MODEL_PATH": f"{OUTPUT_DIR}/model.pt",
-                    "KF_EPOCH_LOSS_PATH": f"{OUTPUT_DIR}/loss.json",
+                    "KF_TRAINED_MODEL_PATH": args.trained_model,
+                    "KF_EPOCH_LOSS_PATH": args.epoch_loss
                 }
-
-                volumes = [
-                    V1Volume(
-                        name="shared",
-                        persistent_volume_claim={"claimName": "shared-pvc"}
-                    )
-                ]
-
-                volume_mounts = [
-                    V1VolumeMount(
-                        name="shared",
-                        mount_path="/mnt/shared"
-                    )
-                ]
-
+                
                 print(f"Submitting PyTorchJob: {job_name}")
                 client.create_job(
                     name=job_name,
@@ -241,23 +213,15 @@ implementation:
                         "cpu": "2",
                         "memory": "32Gi"
                     },
-                    env_vars=env_vars,
-                    volumes=volumes,
-                    volume_mounts=volume_mounts,
+                    env_vars=env_vars
                 )
                 
                 print(f"Waiting for job {job_name}...")
                 client.wait_for_job_conditions(name=job_name)
-
-                # Copy results back to pipeline outputs
-                shutil.copy(f"{OUTPUT_DIR}/model.pt", args.trained_model)
-                shutil.copy(f"{OUTPUT_DIR}/loss.json", args.epoch_loss)
-
-                print("Distributed job completed successfully.")
-
+                print("Job completed.")
+                
             else:
                 train_local(args)
-
         EOF
 
         python3 trigger_job.py \
