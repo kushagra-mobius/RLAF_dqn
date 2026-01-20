@@ -47,7 +47,7 @@ implementation:
             'optimizer': 'adam',
             'learning_rate': config['learning_rate'],
             'epochs': config['epochs'],
-            'loss_function': config['loss_function']
+            'loss_function': config['loss_function'],
             'device':config['device']
         }
 
