@@ -10,7 +10,7 @@ outputs:
   - {name: epoch_loss, type: String}
 implementation:
   container:
-    image: kushagra4761/nesy-factory-gpu:t2.6
+    image: kushagra4761/nesy-factory-gpu:t2.6v2
     command:
       - sh
       - -c
@@ -202,7 +202,7 @@ implementation:
                 client.create_job(
                     name=job_name,
                     train_func=train_func_distributed,
-                    base_image="kushagra4761/nesy-factory-gpu:t2.6",
+                    base_image="kushagra4761/nesy-factory-gpu:t2.6v2",
                     num_workers=2,
                     resources_per_worker={
                         "nvidia.com/gpu": "1",
