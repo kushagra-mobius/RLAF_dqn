@@ -7,7 +7,7 @@ outputs:
   - {name: model, type: Model}
 implementation:
   container:
-    image: nikhilv215/nesy-factory:v23
+    image: kushagra4761/nesy-factory-gpu:t2.6v2
     command:
       - sh
       - -c
@@ -48,6 +48,7 @@ implementation:
             'learning_rate': config['learning_rate'],
             'epochs': config['epochs'],
             'loss_function': config['loss_function']
+            'device':config['device']
         }
 
         if config['model_type'] == 'SimpleRNN':
