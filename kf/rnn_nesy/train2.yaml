@@ -124,12 +124,26 @@ implementation:
                 model_obj = pickle.load(f)
             
             model_obj.to(device)
+            model_obj.device = device
             
             # FSDP2 sharding
-            for layer in model_obj.layers:
-                fully_shard(layer)
+            if hasattr(model_obj, 'layers'):
+                for layer in model_obj.layers:
+                    fully_shard(layer)
+            elif hasattr(model_obj, 'rnn'):
+                fully_shard(model_obj.rnn)
+                fully_shard(model_obj.fc)
+            elif hasattr(model_obj, 'gru'):
+                fully_shard(model_obj.gru)
+                fully_shard(model_obj.fc)
+            
             fully_shard(model_obj)
             model = model_obj
+            
+            # Re-initialize optimizer after sharding to ensure it tracks sharded parameters
+            model.optimizer = None
+            if hasattr(model, '_init_optimizer_and_criterion'):
+                model._init_optimizer_and_criterion()
             
             with open(train_loader_path, 'rb') as f:
                 train_loader_orig = pickle.load(f)
@@ -179,6 +193,9 @@ implementation:
                 with open(epoch_loss_path, 'w') as f:
                     f.write(json.dumps(epoch_loss_data))
                 print(f"Saved trained model to {trained_model_path}")
+            
+            if dist.is_initialized():
+                dist.destroy_process_group()
 
         if __name__ == "__main__":
             print_gpu_details()
@@ -253,7 +270,9 @@ implementation:
                 client.wait_for_job_conditions(name=job_name)
 
                 # Copy results back to pipeline outputs
+                os.makedirs(os.path.dirname(args.trained_model), exist_ok=True)
                 shutil.copy(f"{OUTPUT_DIR}/model.pt", args.trained_model)
+                os.makedirs(os.path.dirname(args.epoch_loss), exist_ok=True)
                 shutil.copy(f"{OUTPUT_DIR}/loss.json", args.epoch_loss)
 
                 print("Distributed job completed successfully.")
