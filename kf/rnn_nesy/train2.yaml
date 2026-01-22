@@ -11,6 +11,9 @@ outputs:
 implementation:
   container:
     image: kushagra4761/nesy-factory-gpu:t2.6v2
+    volumeMounts:
+      - name: shared
+        mountPath: /mnt/shared
     command:
       - sh
       - -c
@@ -274,4 +277,7 @@ implementation:
       - {outputPath: trained_model}
       - {outputPath: epoch_loss}
       - {inputValue: fsdp2_enabled}
-
+  volumes:
+    - name: shared
+      persistentVolumeClaim:
+        claimName: shared-pvc
