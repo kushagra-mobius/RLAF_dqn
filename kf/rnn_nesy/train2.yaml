@@ -235,7 +235,7 @@ implementation:
                     name=job_name,
                     train_func=train_func_distributed,
                     base_image="kushagra4761/nesy-factory-gpu:t2.6v2",
-                    num_workers=2,
+                    num_workers=1,
                     resources_per_worker={
                         "nvidia.com/gpu": "1",
                         "cpu": "2",
