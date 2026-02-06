@@ -1,0 +1,130 @@
+name: Generate Synthetic Data
+description: Generates synthetic data using Gaussian Copula from an input CSV and target parameters.
+
+inputs:
+  - { name: input_file, type: String, description: "Input CSV/Parquet file path or URL" }
+  - { name: target_means, type: String, description: "Target means as JSON string {column: mean}" }
+  - { name: target_stds, type: String, description: "Target stds as JSON string {column: std}" }
+  - { name: bounds, type: String, description: "Bounds as JSON string {column: [min, max]}" }
+  - { name: custom_corr, type: String, description: "Optional custom correlation matrix as JSON string (nested list)", default: "None" }
+  - { name: n_samples, type: Integer, description: "Number of samples to generate", default: "1000" }
+
+outputs:
+  - { name: output_csv, type: Dataset, description: "Generated synthetic CSV file" }
+
+implementation:
+  container:
+    image: python:3.10-slim
+    command:
+      - sh
+      - -c
+      - |
+        pip install pandas numpy scipy pyarrow
+        exec "$0" "$@"
+      - python3
+      - -u
+      - -c
+      - |
+        import pandas as pd
+        import numpy as np
+        from scipy.stats import norm
+        import argparse
+        import json
+        import os
+
+        def load_data(path_or_url):
+            if path_or_url.endswith('.parquet'):
+                return pd.read_parquet(path_or_url)
+            elif path_or_url.endswith('.csv'):
+                return pd.read_csv(path_or_url)
+            else:
+                try:
+                    return pd.read_parquet(path_or_url)
+                except:
+                    return pd.read_csv(path_or_url)
+
+        def fit_gaussian_copula(df):
+            Z = np.zeros(df.shape)
+            for i, col in enumerate(df.columns):
+                ranks = df[col].rank(method="average").values
+                u = (ranks - 0.5) / len(df)
+                Z[:, i] = norm.ppf(u)
+            corr = np.corrcoef(Z, rowvar=False)
+            return Z, corr
+
+        def sample_gaussian_copula(n_samples, corr_matrix, means, stds, bounds, columns):
+            dim = len(columns)
+            jitter = 1e-6
+            corr_matrix = corr_matrix + np.eye(dim) * jitter
+            L = np.linalg.cholesky(corr_matrix)
+            Z_new = np.random.randn(n_samples, dim) @ L.T
+            synthetic = {}
+            for i, col in enumerate(columns):
+                values = Z_new[:, i] * stds[i] + means[i]
+                if col in bounds:
+                    lo, hi = bounds[col]
+                    values = np.clip(values, lo, hi)
+                synthetic[col] = values
+            return pd.DataFrame(synthetic, columns=columns)
+
+        def generate_synthetic_dataset(df, target_means, target_stds, bounds, n_samples=None, custom_corr=None, random_seed=42):
+            np.random.seed(random_seed)
+            columns = list(target_means.keys())
+            df_sub = df[columns].dropna()
+            if custom_corr is not None:
+                corr = np.array(custom_corr)
+            else:
+                _, corr = fit_gaussian_copula(df_sub)
+            means = np.array([target_means[c] for c in columns])
+            stds  = np.array([target_stds[c] for c in columns])
+            if n_samples is None:
+                n_samples = len(df_sub)
+            return sample_gaussian_copula(n_samples=n_samples, corr_matrix=corr, means=means, stds=stds, bounds=bounds, columns=columns)
+
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--input_file', type=str, required=True)
+        parser.add_argument('--target_means', type=str, required=True)
+        parser.add_argument('--target_stds', type=str, required=True)
+        parser.add_argument('--bounds', type=str, required=True)
+        parser.add_argument('--custom_corr', type=str, default="None")
+        parser.add_argument('--n_samples', type=int, default=1000)
+        parser.add_argument('--output_csv', type=str, required=True)
+        args = parser.parse_args()
+        args.input_file = args.input_file.replace("$$", "$$$")
+        df = load_data(args.input_file)
+        t_means = json.loads(args.target_means)
+        t_stds = json.loads(args.target_stds)
+        t_bounds = json.loads(args.bounds)
+        
+        c_corr = None
+        if args.custom_corr and args.custom_corr != "None":
+            c_corr = json.loads(args.custom_corr)
+
+        synthetic_df = generate_synthetic_dataset(
+            df=df,
+            target_means=t_means,
+            target_stds=t_stds,
+            bounds=t_bounds,
+            n_samples=args.n_samples,
+            custom_corr=c_corr
+        )
+
+        os.makedirs(os.path.dirname(args.output_csv), exist_ok=True)
+        synthetic_df.to_csv(args.output_csv, index=False)
+        print(f"Synthetic data saved to {args.output_csv}")
+
+    args:
+      - --input_file
+      - {inputValue: input_file}
+      - --target_means
+      - {inputValue: target_means}
+      - --target_stds
+      - {inputValue: target_stds}
+      - --bounds
+      - {inputValue: bounds}
+      - --custom_corr
+      - {inputValue: custom_corr}
+      - --n_samples
+      - {inputValue: n_samples}
+      - --output_csv
+      - {outputPath: output_csv}
