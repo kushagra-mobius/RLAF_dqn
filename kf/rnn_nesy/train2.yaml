@@ -209,16 +209,19 @@ implementation:
                 from kubeflow.training import TrainingClient
                 from kubernetes.client import V1Volume, V1VolumeMount
                 import shutil
+                import time
 
                 # Shared PVC paths
                 SHARED_ROOT = "/mnt/shared"
                 INPUT_DIR = f"{SHARED_ROOT}/inputs"
                 OUTPUT_DIR = f"{SHARED_ROOT}/outputs"
 
+                # Ensure PVC directories exist
                 os.makedirs(INPUT_DIR, exist_ok=True)
                 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
                 # Copy pipeline artifacts to shared volume
+                print(f"Copying inputs to Shared PVC: {INPUT_DIR}")
                 shutil.copy(args.model, f"{INPUT_DIR}/model.pkl")
                 shutil.copy(args.train_loader, f"{INPUT_DIR}/train_loader.pkl")
 
@@ -264,15 +267,37 @@ implementation:
                 )
                 
                 print(f"Waiting for job {job_name}...")
+                # Wait for the job to either Succeed or Fail
                 client.wait_for_job_conditions(name=job_name)
 
-                # Copy results back to pipeline outputs
-                os.makedirs(os.path.dirname(args.trained_model), exist_ok=True)
-                shutil.copy(f"{OUTPUT_DIR}/model.pt", args.trained_model)
-                os.makedirs(os.path.dirname(args.epoch_loss), exist_ok=True)
-                shutil.copy(f"{OUTPUT_DIR}/loss.json", args.epoch_loss)
+                # Verify Job Status
+                if not client.is_job_succeeded(name=job_name):
+                    raise RuntimeError(f"PyTorchJob {job_name} failed or did not succeed. Check PyTorchJob logs.")
 
-                print("Distributed job completed successfully.")
+                # Verify Source Files Exist on PVC
+                src_model_path = f"{OUTPUT_DIR}/model.pt"
+                src_loss_path = f"{OUTPUT_DIR}/loss.json"
+
+                if not os.path.exists(src_model_path):
+                    raise FileNotFoundError(f"Job succeeded, but output file not found at: {src_model_path}")
+
+                # Copy results back to pipeline outputs
+                print("Copying results from PVC back to Pipeline outputs...")
+                
+                # 1. Create directory for trained_model output
+                os.makedirs(os.path.dirname(args.trained_model), exist_ok=True)
+                shutil.copy(src_model_path, args.trained_model)
+                
+                # 2. Create directory for epoch_loss output
+                os.makedirs(os.path.dirname(args.epoch_loss), exist_ok=True)
+                if os.path.exists(src_loss_path):
+                    shutil.copy(src_loss_path, args.epoch_loss)
+                else:
+                    # Fallback if loss file wasn't generated
+                    with open(args.epoch_loss, 'w') as f:
+                        f.write("[]")
+
+                print(f"Distributed job completed successfully. Model saved to {args.trained_model}")
 
             else:
                 train_local(args)
