@@ -292,6 +292,3 @@ implementation:
       - {outputPath: trained_model}
       - {outputPath: epoch_loss}
       - {inputValue: fsdp2_enabled}
-    volumeMounts:
-      - name: shared
-        mountPath: /mnt/shared
