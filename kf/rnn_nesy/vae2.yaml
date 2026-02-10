@@ -83,7 +83,11 @@ implementation:
                     for batch in train_loader_obj:
                         data = (batch[0] if isinstance(batch, (list, tuple)) else batch).to(device)
                         optimizer.zero_grad()
-                        recon, mu, logvar = model_obj(data)
+                        output = model_obj(data)
+                        if isinstance(output, dict):
+                            recon, mu, logvar = output['recon'], output['mu'], output['log_var']
+                        else:
+                            recon, mu, logvar = output
                         r_loss = nn.MSELoss()(recon, data)
                         k_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp()) / data.size(0)
                         loss = r_loss + beta * k_loss
@@ -160,7 +164,11 @@ implementation:
                 for batch in train_loader:
                     data = (batch[0] if isinstance(batch, (list, tuple)) else batch).to(device)
                     optimizer.zero_grad()
-                    recon, mu, logvar = model(data)
+                    output = model(data)
+                    if isinstance(output, dict):
+                        recon, mu, logvar = output['recon'], output['mu'], output['log_var']
+                    else:
+                        recon, mu, logvar = output
                     r_loss = nn.MSELoss()(recon, data)
                     k_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp()) / data.size(0)
                     loss = r_loss + beta * k_loss

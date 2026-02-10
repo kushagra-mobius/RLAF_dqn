@@ -1,0 +1,101 @@
+name: Initialize VAE Model 2
+description: Initializes the VAE model for signature failure detection.
+inputs:
+  - {name: config, type: String}
+outputs:
+  - {name: model, type: Model}
+implementation:
+  container:
+    image: kushagra4761/nesy-factory-gpu:t2.6v2
+    command:
+      - sh
+      - -c
+      - |
+        exec "$0" "$@"
+      - python3
+      - -u
+      - -c
+      - |
+        import argparse
+        import json
+        import os
+        import pickle
+        import sys
+        import torch
+        
+        from nesy_factory.VAE.standard_vae import StandardVAE
+        from nesy_factory.VAE.beta_vae import BetaVAE
+        from nesy_factory.VAE.conditional_vae import ConditionalVAE
+
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--config', type=str, required=True)
+        parser.add_argument('--model', type=str, required=True)
+        args = parser.parse_args()
+
+        config = json.loads(args.config)
+
+        print(f"Received config: {json.dumps(config, indent=2)}")
+
+        if 'processed_input_dim' in config:
+            input_dim = config['processed_input_dim']
+        elif 'input_dim' in config:
+            input_dim = config['input_dim']
+        else:
+            input_dim = len(config['feature_columns'])
+        
+        print(f"Using input_dim: {input_dim}")
+
+        # FIXED: Using h_dim consistently to avoid NameError
+        h_dim = config.get('hidden_dim', config.get('hidden_dims', [32, 16]))
+
+        model_config = {
+            'input_dim': input_dim,
+            'latent_dim': config['latent_dim'],
+            'hidden_dim': h_dim,
+            'hidden_dims': h_dim if isinstance(h_dim, list) else [h_dim],
+            'num_layers': config.get('num_layers', 2),
+            'dropout': config.get('dropout', 0.1),
+            'optimizer': 'adam',
+            'learning_rate': config.get('learning_rate', 0.001),
+            'epochs': config.get('epochs', 1),
+            'loss_function': 'ELBO',
+            'use_forward_forward': config.get('use_forward_forward', False),
+            'use_cafo': config.get('use_cafo', False),
+            'ff_threshold': config.get('ff_threshold', 2.0),
+            'ff_lr': config.get('ff_lr', 0.0001),
+            'device': config.get('device', 'cpu')
+        }
+
+        model_type = config.get('model_type', 'StandardVAE')
+        print(f"Model type: '{model_type}'")
+
+        if model_type in ['StandardVAE', 'VAE', 'standard_vae', 'vae']:
+            model_obj = StandardVAE(model_config)
+            print("Initialized StandardVAE")
+        elif model_type in ['BetaVAE', 'beta_vae']:
+            model_obj = BetaVAE(model_config)
+            print("Initialized BetaVAE")
+        elif model_type in ['ConditionalVAE', 'conditional_vae', 'CVAE']:
+            model_obj = ConditionalVAE(model_config)
+            print("Initialized ConditionalVAE")
+        else:
+            raise ValueError(f"Invalid model type '{model_type}'. Use: StandardVAE, BetaVAE, or ConditionalVAE")
+
+        # Move model to device if specified
+        device = config.get('device', 'cpu')
+        if device == 'cuda' and torch.cuda.is_available():
+            model_obj.to('cuda')
+            print(f"Moved model to {device}")
+        elif device == 'cuda':
+            print("CUDA requested but not available, staying on CPU")
+
+        os.makedirs(os.path.dirname(args.model), exist_ok=True)
+        with open(args.model, "wb") as f:
+            pickle.dump(model_obj, f)
+
+        print(f"Saved model to {args.model}")
+    args:
+      - --config
+      - {inputValue: config}
+      - --model
+      - {outputPath: model}
