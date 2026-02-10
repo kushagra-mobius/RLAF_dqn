@@ -1,0 +1,289 @@
+name: Train VAE Model FSDP
+description: Trains the VAE model with Traditional, CAFO, or Forward Forward methods. Supports FSDP2 for traditional training.
+inputs:
+  - {name: model, type: Model}
+  - {name: train_loader, type: Dataset}
+  - {name: config, type: String}
+  - {name: fsdp2_enabled, type: String, default: 'false', description: 'Enable FSDP2 distributed training for traditional mode'}
+outputs:
+  - {name: trained_model, type: Model}
+  - {name: epoch_loss, type: String}
+implementation:
+  container:
+    image: kushagra4761/nesy-factory-gpu:t2.6v2
+    command:
+      - sh
+      - -c
+      - |
+        python3 -m pip install --quiet kubeflow-training
+
+        cat << 'EOF' > trigger_job.py
+        import argparse
+        import json
+        import os
+        import pickle
+        import sys
+        import uuid
+        import torch
+        import torch.nn as nn
+        import torch.optim as optim
+        import shutil
+
+        def train_local(args):
+            from nesy_factory.VAE.standard_vae import StandardVAE
+            print("Starting Local VAE Training")
+            config = json.loads(args.config)
+
+            with open(args.model, 'rb') as f:
+                model_obj = pickle.load(f)
+
+            with open(args.train_loader, 'rb') as f:
+                train_data = pickle.load(f)
+                
+            if isinstance(train_data, dict) and 'loader' in train_data:
+                train_loader_obj = train_data['loader']
+            else:
+                train_loader_obj = train_data
+
+            # Check training method
+            use_cafo = config.get('use_cafo', False)
+            use_ff = config.get('use_forward_forward', False)
+
+            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            model_obj = model_obj.to(device)
+
+            epoch_loss_data = []
+
+            if use_ff:
+                # FF Training (Simplified for local)
+                X_train_list = [batch[0] if isinstance(batch, (list, tuple)) else batch for batch in train_loader_obj]
+                X_train = torch.cat(X_train_list, dim=0).to(device)
+                ff_results = model_obj.train_forward_forward(X_train, verbose=False)
+                for i, res in enumerate(ff_results['encoder_results']):
+                    if res['losses']: epoch_loss_data.append({'block': i+1, 'type': 'enc', 'loss': float(res['losses'][-1])})
+                for i, res in enumerate(ff_results['decoder_results']):
+                    if res['losses']: epoch_loss_data.append({'block': i+1, 'type': 'dec', 'loss': float(res['losses'][-1])})
+            elif use_cafo:
+                # CAFO Training
+                X_train_list = [batch[0] if isinstance(batch, (list, tuple)) else batch for batch in train_loader_obj]
+                X_train = torch.cat(X_train_list, dim=0).to(device)
+                cafo_results = model_obj.train_cafo(X_train, verbose=False)
+                for i, res in enumerate(cafo_results['encoder_results']):
+                    if res['train_losses']: epoch_loss_data.append({'block': i+1, 'type': 'enc', 'loss': float(res['train_losses'][-1])})
+                for i, res in enumerate(cafo_results['decoder_results']):
+                    if res['train_losses']: epoch_loss_data.append({'block': i+1, 'type': 'dec', 'loss': float(res['train_losses'][-1])})
+            else:
+                # Traditional Training
+                epochs = config.get('epochs', 100)
+                beta = config.get('beta', 1.0)
+                optimizer = optim.Adam(model_obj.parameters(), lr=config.get('learning_rate', 0.001))
+                model_obj.train()
+                for epoch in range(epochs):
+                    t_loss = 0
+                    for batch in train_loader_obj:
+                        data = (batch[0] if isinstance(batch, (list, tuple)) else batch).to(device)
+                        optimizer.zero_grad()
+                        recon, mu, logvar = model_obj(data)
+                        r_loss = nn.MSELoss()(recon, data)
+                        k_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp()) / data.size(0)
+                        loss = r_loss + beta * k_loss
+                        loss.backward()
+                        optimizer.step()
+                        t_loss += loss.item()
+                    avg_l = t_loss / len(train_loader_obj)
+                    epoch_loss_data.append({'epoch': epoch+1, 'loss': avg_l})
+                    if (epoch+1)%10 == 0: print(f"Epoch {epoch+1} Loss: {avg_l}")
+
+            os.makedirs(os.path.dirname(args.trained_model), exist_ok=True)
+            with open(args.trained_model, 'wb') as f:
+                pickle.dump(model_obj.cpu(), f)
+            
+            os.makedirs(os.path.dirname(args.epoch_loss), exist_ok=True)
+            with open(args.epoch_loss, 'w') as f:
+                json.dump(epoch_loss_data, f)
+            
+            print(f"Saved local model to {args.trained_model}")
+
+        def train_func_distributed():
+            import os
+            import json
+            import pickle
+            import torch
+            import torch.nn as nn
+            import torch.distributed as dist
+            from torch.utils.data import DistributedSampler, DataLoader
+            from torch.distributed.fsdp import fully_shard
+            from nesy_factory.VAE.standard_vae import StandardVAE
+            
+            dist.init_process_group(backend="nccl")
+            local_rank = int(os.environ.get("LOCAL_RANK", 0))
+            device = torch.device(f"cuda:{local_rank}")
+            
+            config = json.loads(os.environ.get("KF_CONFIG"))
+            
+            # Load Model
+            with open(os.environ.get("KF_MODEL_PATH"), 'rb') as f:
+                model = pickle.load(f)
+            
+            model.to(device)
+            
+            # FSDP Sharding for VAE
+            if hasattr(model, 'encoder'): fully_shard(model.encoder)
+            if hasattr(model, 'decoder'): fully_shard(model.decoder)
+            fully_shard(model)
+            
+            # Load Data
+            with open(os.environ.get("KF_TRAIN_LOADER_PATH"), 'rb') as f:
+                train_data = pickle.load(f)
+            
+            # Handle DataWrapper vs DataLoader
+            if isinstance(train_data, dict) and 'loader' in train_data:
+                dataset = train_data['loader'].dataset
+            elif hasattr(train_data, 'dataset'):
+                dataset = train_data.dataset
+            else:
+                # Fallback if it's just a dataset object
+                dataset = train_data
+
+            sampler = DistributedSampler(dataset)
+            train_loader = DataLoader(dataset, batch_size=config.get('batch_size', 32), sampler=sampler)
+
+            optimizer = torch.optim.Adam(model.parameters(), lr=config.get('learning_rate', 0.001))
+            epochs = config.get('epochs', 10)
+            beta = config.get('beta', 1.0)
+            
+            epoch_loss_history = []
+            for epoch in range(epochs):
+                model.train()
+                sampler.set_epoch(epoch)
+                total_loss = torch.zeros(1, device=device)
+                for batch in train_loader:
+                    data = (batch[0] if isinstance(batch, (list, tuple)) else batch).to(device)
+                    optimizer.zero_grad()
+                    recon, mu, logvar = model(data)
+                    r_loss = nn.MSELoss()(recon, data)
+                    k_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp()) / data.size(0)
+                    loss = r_loss + beta * k_loss
+                    loss.backward()
+                    optimizer.step()
+                    total_loss += loss.detach()
+                
+                dist.all_reduce(total_loss, op=dist.ReduceOp.SUM)
+                if dist.get_rank() == 0:
+                    # Average over world size and batches
+                    avg_l = total_loss.item() / (dist.get_world_size() * len(train_loader))
+                    print(f"Epoch {epoch+1} Loss: {avg_l}")
+                    epoch_loss_history.append({'epoch': epoch+1, 'loss': avg_l})
+
+            if dist.get_rank() == 0:
+                # Save Model
+                torch.save(model.state_dict(), os.environ.get("KF_TRAINED_MODEL_PATH"))
+                # Save Loss
+                with open(os.environ.get("KF_EPOCH_LOSS_PATH"), 'w') as f:
+                    json.dump(epoch_loss_history, f)
+
+            dist.destroy_process_group()
+
+        if __name__ == "__main__":
+            parser = argparse.ArgumentParser()
+            parser.add_argument('--model', type=str, required=True)
+            parser.add_argument('--train_loader', type=str, required=True)
+            parser.add_argument('--config', type=str, required=True)
+            parser.add_argument('--trained_model', type=str, required=True)
+            parser.add_argument('--epoch_loss', type=str, required=True)
+            parser.add_argument('--fsdp2_enabled', type=str, default='false')
+            args = parser.parse_args()
+            
+            if args.fsdp2_enabled.lower() == 'true':
+                from kubeflow.training import TrainingClient
+                from kubernetes.client import V1Volume, V1VolumeMount
+                
+                # Shared PVC paths
+                SHARED_ROOT = "/mnt/shared"
+                INPUT_DIR = f"{SHARED_ROOT}/inputs"
+                OUTPUT_DIR = f"{SHARED_ROOT}/outputs"
+
+                # Ensure PVC directories exist
+                os.makedirs(INPUT_DIR, exist_ok=True)
+                os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+                print(f"Copying inputs to Shared PVC: {INPUT_DIR}")
+                shutil.copy(args.model, f"{INPUT_DIR}/model.pkl")
+                shutil.copy(args.train_loader, f"{INPUT_DIR}/loader.pkl")
+
+                client = TrainingClient(namespace="admin")
+                job_name = f"vae-fsdp2-{uuid.uuid4().hex[:6]}"
+                
+                env_vars = {
+                    "KF_MODEL_PATH": f"{INPUT_DIR}/model.pkl",
+                    "KF_TRAIN_LOADER_PATH": f"{INPUT_DIR}/loader.pkl",
+                    "KF_CONFIG": args.config,
+                    "KF_TRAINED_MODEL_PATH": f"{OUTPUT_DIR}/model.pt",
+                    "KF_EPOCH_LOSS_PATH": f"{OUTPUT_DIR}/loss.json",
+                }
+
+                volumes = [V1Volume(name="shared", persistent_volume_claim={"claimName": "shared-pvc"})]
+                volume_mounts = [V1VolumeMount(name="shared", mount_path="/mnt/shared")]
+
+                print(f"Submitting PyTorchJob: {job_name}")
+                client.create_job(
+                    name=job_name,
+                    train_func=train_func_distributed,
+                    base_image="kushagra4761/nesy-factory-gpu:t2.6v2",
+                    num_workers=1,
+                    resources_per_worker={"nvidia.com/gpu": "1", "cpu": "2", "memory": "16Gi"},
+                    env_vars=env_vars,
+                    volumes=volumes,
+                    volume_mounts=volume_mounts,
+                )
+                
+                print(f"Waiting for job {job_name}...")
+                client.wait_for_job_conditions(name=job_name)
+
+                # Verify Job Status
+                if not client.is_job_succeeded(name=job_name):
+                    raise RuntimeError(f"PyTorchJob {job_name} failed or did not succeed. Check PyTorchJob logs.")
+
+                # Verify Source Files Exist on PVC
+                src_model_path = f"{OUTPUT_DIR}/model.pt"
+                src_loss_path = f"{OUTPUT_DIR}/loss.json"
+
+                if not os.path.exists(src_model_path):
+                    raise FileNotFoundError(f"Job succeeded, but output file not found at: {src_model_path}")
+
+                print("Copying results from PVC back to Pipeline outputs...")
+                
+                # 1. Create directory for trained_model output
+                os.makedirs(os.path.dirname(args.trained_model), exist_ok=True)
+                shutil.copy(src_model_path, args.trained_model)
+                
+                # 2. Create directory for epoch_loss output
+                os.makedirs(os.path.dirname(args.epoch_loss), exist_ok=True)
+                if os.path.exists(src_loss_path):
+                    shutil.copy(src_loss_path, args.epoch_loss)
+                else:
+                    with open(args.epoch_loss, 'w') as f:
+                        f.write("[]")
+                
+                print(f"Distributed job completed successfully. Model saved to {args.trained_model}")
+            else:
+                train_local(args)
+        EOF
+
+        python3 trigger_job.py \
+          --model "$0" \
+          --train_loader "$1" \
+          --config "$2" \
+          --trained_model "$3" \
+          --epoch_loss "$4" \
+          --fsdp2_enabled "$5"
+    args:
+      - {inputPath: model}
+      - {inputPath: train_loader}
+      - {inputValue: config}
+      - {outputPath: trained_model}
+      - {outputPath: epoch_loss}
+      - {inputValue: fsdp2_enabled}
+    volumeMounts:
+      - name: shared
+        mountPath: /mnt/shared
