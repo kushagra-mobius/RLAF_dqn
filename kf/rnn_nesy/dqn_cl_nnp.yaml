@@ -18,7 +18,7 @@ outputs:
   - {name: retrained_model, type: Model}
 implementation:
   container:
-    image: nikhilv215/nesy-factory:v23
+    image: gurpreetgandhi/nesy-factory:v1
     command:
       - sh
       - -c
@@ -99,6 +99,7 @@ implementation:
             
             def __init__(self, config: Dict[str, Any]):
                 self.config = config
+                self.device = config.get('device', 'cpu')
                 self.results = {}
                 
             def train_continual_rnn(
@@ -146,6 +147,7 @@ implementation:
                         model.train()
                         total_loss = 0
                         for inputs, labels in training_loader:
+                            inputs, labels = inputs.to(self.device), labels.to(self.device)
                             if strategy_name == 'regularized' and task_idx > 0:
                                 loss = self._train_with_regularization(model, (inputs, labels))
                             else:
@@ -388,7 +390,8 @@ implementation:
                 'optimizer': 'adam',
                 'learning_rate': config['learning_rate'],
                 'epochs': config['epochs'],
-                'loss_function': config['loss_function']
+                'loss_function': config['loss_function'],
+                'device': config.get('device', 'cpu')
             }
 
             if config['model_type'] == 'SimpleRNN':
@@ -398,7 +401,8 @@ implementation:
             else:
                 raise ValueError("Invalid model type specified")
 
-            model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
+            model.load_state_dict(torch.load(model_path, map_location=torch.device(config.get('device', 'cpu'))))
+            model.to(config.get('device', 'cpu'))
             model._init_optimizer_and_criterion()
 
             print("Starting continual learning experiments")

@@ -10,7 +10,7 @@ outputs:
   - {name: rlaf_output, type: Dataset}
 implementation:
   container:
-    image: nikhilv215/nesy-factory:v5
+    image: gurpreetgandhi/nesy-factory:v1
     command:
       - sh
       - -c
