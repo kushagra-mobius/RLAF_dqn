@@ -1,0 +1,273 @@
+name: Convert PT to ONNX
+description: Converts trained PyTorch RNN model to ONNX format
+inputs:
+  - {name: pt_model, type: Model}
+  - {name: config, type: String}
+  - {name: output_name, type: String, default: 'model.onnx'}
+outputs:
+  - {name: onnx_model, type: Model}
+implementation:
+  container:
+    image: gurpreetgandhi/nesy-factory:v1
+    command:
+      - sh
+      - -c
+      - |
+        exec "$0" "$@"
+      - python3
+      - -u
+      - -c
+      - |
+        import argparse
+        import json
+        import os
+        import torch
+        import torch.nn as nn
+        import numpy as np
+        
+        def load_config(config_str):
+            return json.loads(config_str)
+        
+        def create_dummy_input(config):
+            batch_size = 1
+            seq_length = config.get('seq_length', 64)
+            input_dim = len(config['feature_columns'])
+            dummy_input = torch.randn(batch_size, seq_length, input_dim)
+            return dummy_input
+        
+        def load_model_from_pt(pt_path, device='cpu'):
+            try:
+                state_dict = torch.load(pt_path, map_location=torch.device(device))
+                if isinstance(state_dict, dict):
+                    print("Loaded state_dict from .pt file")
+                    return state_dict
+                else:
+                    print("Unexpected format in .pt file")
+                    return None
+            except Exception as e:
+                print(f"Error loading .pt file: {e}")
+                return None
+        
+        def create_model_architecture(config, device='cpu'):
+            model_type = config.get('model_type', 'SimpleRNN')
+            input_dim = len(config['feature_columns'])
+            hidden_dim = config['hidden_dim']
+            num_layers = config['num_layers']
+            output_dim = 1
+            
+            class SimpleRNNModel(nn.Module):
+                def __init__(self):
+                    super(SimpleRNNModel, self).__init__()
+                    self.input_dim = input_dim
+                    self.hidden_dim = hidden_dim
+                    self.num_layers = num_layers
+                    self.output_dim = output_dim
+                    self.layers = nn.ModuleList()
+                    for i in range(num_layers):
+                        self.layers.append(nn.RNN(
+                            input_size=input_dim if i == 0 else hidden_dim,
+                            hidden_size=hidden_dim,
+                            num_layers=1,
+                            batch_first=True,
+                            dropout=0.0
+                        ))
+                    self.fc = nn.Linear(hidden_dim, output_dim)
+                
+                def forward(self, x):
+                    batch_size = x.size(0)
+                    device = x.device
+                    h0 = torch.zeros(self.num_layers, batch_size, self.hidden_dim).to(device)
+                    current_input = x
+                    h_prev = h0
+                    for i, layer in enumerate(self.layers):
+                        out, h = layer(current_input, h_prev[i:i+1])
+                        new_h_prev = h_prev.clone()
+                        new_h_prev[i:i+1] = h
+                        h_prev = new_h_prev
+                        current_input = out
+                    output = self.fc(out[:, -1, :])
+                    return output
+            
+            class GRUModel(nn.Module):
+                def __init__(self):
+                    super(GRUModel, self).__init__()
+                    self.input_dim = input_dim
+                    self.hidden_dim = hidden_dim
+                    self.num_layers = num_layers
+                    self.output_dim = output_dim
+                    self.layers = nn.ModuleList()
+                    for i in range(num_layers):
+                        self.layers.append(nn.GRU(
+                            input_size=input_dim if i == 0 else hidden_dim,
+                            hidden_size=hidden_dim,
+                            num_layers=1,
+                            batch_first=True,
+                            dropout=0.0
+                        ))
+                    self.fc = nn.Linear(hidden_dim, output_dim)
+                
+                def forward(self, x):
+                    batch_size = x.size(0)
+                    device = x.device
+                    h0 = torch.zeros(self.num_layers, batch_size, self.hidden_dim).to(device)
+                    current_input = x
+                    h_prev = h0
+                    for i, layer in enumerate(self.layers):
+                        out, h = layer(current_input, h_prev[i:i+1])
+                        new_h_prev = h_prev.clone()
+                        new_h_prev[i:i+1] = h
+                        h_prev = new_h_prev
+                        current_input = out
+                    output = self.fc(out[:, -1, :])
+                    return output
+            
+            if model_type == 'SimpleRNN':
+                model = SimpleRNNModel()
+            elif model_type == 'GRU':
+                model = GRUModel()
+            else:
+                raise ValueError(f"Unsupported model type: {model_type}")
+            
+            model.to(device)
+            model.eval()
+            return model
+        
+        def convert_to_onnx(pt_path, config_str, output_path, device='cpu'):
+            print("=" * 60)
+            print("RNN Model PT to ONNX Converter")
+            print("=" * 60)
+            
+            print(f"\\n[1/6] Loading configuration...")
+            config = load_config(config_str)
+            print(f"Model type: {config.get('model_type', 'N/A')}")
+            print(f"Input features: {len(config['feature_columns'])}")
+            print(f"Hidden dim: {config['hidden_dim']}")
+            print(f"Num layers: {config['num_layers']}")
+            
+            print(f"\\n[2/6] Loading model weights from {pt_path}...")
+            state_dict = load_model_from_pt(pt_path, device)
+            if state_dict is None:
+                raise ValueError("Failed to load model state dict")
+            
+            print(f"\\n[3/6] Creating model architecture...")
+            model = create_model_architecture(config, device)
+            print(f"Created {config.get('model_type', 'RNN')} model")
+            
+            print(f"\\n[4/6] Loading weights into model...")
+            try:
+                model.load_state_dict(state_dict, strict=True)
+                print("Weights loaded successfully")
+            except Exception as e:
+                print(f"Error loading weights: {e}")
+                print("Attempting to load with strict=False...")
+                model.load_state_dict(state_dict, strict=False)
+                print("Weights loaded with warnings")
+            
+            print(f"\\n[5/6] Creating dummy input for ONNX export...")
+            dummy_input = create_dummy_input(config)
+            dummy_input = dummy_input.to(device)
+            print(f"Input shape: {dummy_input.shape}")
+            
+            print("\\n[5.5/6] Testing forward pass...")
+            try:
+                with torch.no_grad():
+                    output = model(dummy_input)
+                print(f"Forward pass successful, output shape: {output.shape}")
+            except Exception as e:
+                print(f"Forward pass failed: {e}")
+                raise
+            
+            print(f"\\n[6/6] Exporting to ONNX format...")
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+            
+            dynamic_axes = {
+                'input': {0: 'batch_size', 1: 'seq_length'},
+                'output': {0: 'batch_size'}
+            }
+            
+            try:
+                torch.onnx.export(
+                    model,
+                    dummy_input,
+                    output_path,
+                    export_params=True,
+                    opset_version=11,
+                    do_constant_folding=True,
+                    input_names=['input'],
+                    output_names=['output'],
+                    dynamic_axes=dynamic_axes,
+                    verbose=False
+                )
+                print(f"ONNX model exported to: {output_path}")
+            except Exception as e:
+                print(f"ONNX export failed: {e}")
+                raise
+            
+            print(f"\\n[Verification] Checking ONNX model...")
+            try:
+                import onnx
+                onnx_model = onnx.load(output_path)
+                onnx.checker.check_model(onnx_model)
+                print("ONNX model verification passed!")
+                print(f"Opset version: {onnx_model.opset_import[0].version}")
+            except ImportError:
+                print("ONNX package not installed, skipping verification")
+            except Exception as e:
+                print(f"ONNX verification warning: {e}")
+            
+            print(f"\\n[Testing] Running ONNX Runtime inference test...")
+            try:
+                import onnxruntime as ort
+                session = ort.InferenceSession(output_path)
+                test_input = dummy_input.cpu().numpy()
+                ort_outputs = session.run(['output'], {'input': test_input})
+                with torch.no_grad():
+                    pt_output = model(dummy_input).cpu().numpy()
+                diff = np.abs(ort_outputs[0] - pt_output).mean()
+                print(f"ONNX Runtime inference successful!")
+                print(f"Mean absolute difference from PyTorch: {diff:.6e}")
+                if diff < 1e-5:
+                    print("Results match closely!")
+                else:
+                    print("Results have some difference")
+            except ImportError:
+                print("ONNX Runtime not installed, skipping inference test")
+            except Exception as e:
+                print(f"ONNX Runtime test warning: {e}")
+            
+            print("\\n" + "=" * 60)
+            print("Conversion Complete!")
+            print("=" * 60)
+            print(f"ONNX model saved to: {output_path}")
+            print(f"Model type: {config.get('model_type', 'RNN')}")
+            print(f"Input shape: (batch_size, {config.get('seq_length', 64)}, {len(config['feature_columns'])})")
+            print(f"Output shape: (batch_size, 1)")
+            
+            return output_path
+        
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--pt_model', type=str, required=True)
+        parser.add_argument('--config', type=str, required=True)
+        parser.add_argument('--output_name', type=str, default='model.onnx')
+        parser.add_argument('--onnx_model', type=str, required=True)
+        args = parser.parse_args()
+        
+        device = 'cpu'
+        
+        convert_to_onnx(
+            pt_path=args.pt_model,
+            config_str=args.config,
+            output_path=args.onnx_model,
+            device=device
+        )
+        
+        print(f"\\nSaved ONNX model to {args.onnx_model}")
+    args:
+      - --pt_model
+      - {inputPath: pt_model}
+      - --config
+      - {inputValue: config}
+      - --output_name
+      - {inputValue: output_name}
+      - --onnx_model
+      - {outputPath: onnx_model}
